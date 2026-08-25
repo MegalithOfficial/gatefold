@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use librespot::core::authentication::Credentials;
 use librespot::core::cache::Cache;
 use librespot::core::{Session, SessionConfig};
@@ -20,9 +20,7 @@ pub async fn connect() -> Result<Session> {
 }
 
 fn cache() -> Result<Cache> {
-    let dir = dirs::cache_dir()
-        .context("no cache directory")?
-        .join("gatefold");
+    let dir = crate::cache_dir()?;
 
     Ok(Cache::new(Some(&dir), None, None, None)?)
 }
