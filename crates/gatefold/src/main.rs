@@ -15,9 +15,11 @@ fn main() -> Result<()> {
         .nth(1)
         .context("usage: gatefold <spotify track uri>")?;
 
-    RelmApp::new(APP_ID)
-        .with_args(Vec::new())
-        .run::<ui::Gatefold>(uri);
+    let app = RelmApp::new(APP_ID).with_args(Vec::new());
+
+    relm4::set_global_css(include_str!("style.css"));
+
+    app.run::<ui::Gatefold>(uri);
 
     Ok(())
 }
