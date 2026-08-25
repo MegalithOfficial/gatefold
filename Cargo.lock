@@ -838,7 +838,6 @@ dependencies = [
  "anyhow",
  "gatefold-core",
  "relm4",
- "tokio",
  "tracing",
  "tracing-subscriber",
 ]
