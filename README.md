@@ -1,2 +1,6 @@
 # gatefold
-A native Spotify client for Linux, designed around the album art.
+
+A Spotify client for Linux that puts the album art first, built on GTK4 and
+librespot. Needs a Spotify Premium account.
+
+Not usable yet.

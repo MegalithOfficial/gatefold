@@ -1,0 +1,16 @@
+[package]
+name = "gatefold"
+description = "A native Spotify client for Linux, designed around the album art."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+gatefold-core = { path = "../gatefold-core" }
+
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

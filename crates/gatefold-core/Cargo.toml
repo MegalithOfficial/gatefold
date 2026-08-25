@@ -1,0 +1,15 @@
+[package]
+name = "gatefold-core"
+description = "Session, auth, and playback for Gatefold. No UI dependencies."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+librespot = "0.8"
+
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
