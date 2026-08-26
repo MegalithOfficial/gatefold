@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
-use gatefold_core::player::Player;
+use gatefold_core::player::Playback;
 use gatefold_core::{cache_dir, metadata, player, session};
 use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, adw, gtk};
@@ -12,7 +12,7 @@ pub struct Gatefold {
     cover: Option<PathBuf>,
     title: String,
     artist: String,
-    player: Option<Arc<Player>>,
+    player: Option<Arc<Playback>>,
     playing: bool,
     chrome: bool,
 }
@@ -21,7 +21,7 @@ pub struct Track {
     cover: PathBuf,
     title: String,
     artist: String,
-    player: Arc<Player>,
+    player: Arc<Playback>,
 }
 
 pub enum Loaded {
@@ -169,12 +169,7 @@ impl Component for Gatefold {
                     return;
                 };
 
-                if self.playing {
-                    player.pause();
-                } else {
-                    player.play();
-                }
-
+                player.toggle();
                 self.playing = !self.playing;
             }
         }
@@ -216,7 +211,7 @@ async fn load(uri: String) -> Result<Track> {
     std::fs::write(&path, &cover)?;
 
     let player = player::start(session)?;
-    player::load(&player, &uri)?;
+    player.play_queue(vec![uri], 0);
 
     Ok(Track {
         cover: path,

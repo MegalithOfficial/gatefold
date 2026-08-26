@@ -850,6 +850,7 @@ dependencies = [
  "dirs",
  "futures",
  "librespot",
+ "rand 0.9.5",
  "tokio",
  "tracing",
 ]
