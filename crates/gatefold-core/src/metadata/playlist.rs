@@ -76,3 +76,13 @@ pub async fn playlist(session: &Session, uri: &str) -> Result<PlaylistInfo> {
         tracks,
     })
 }
+
+pub async fn playlist_uris(session: &Session, uri: &str) -> Result<Vec<String>> {
+    let id = SpotifyUri::from_uri(uri)?;
+    let playlist = net::fetch(|| Playlist::get(session, &id)).await?;
+
+    Ok(playlist
+        .tracks()
+        .filter_map(|track| track.to_uri().ok())
+        .collect())
+}

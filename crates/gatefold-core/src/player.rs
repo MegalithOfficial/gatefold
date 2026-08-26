@@ -8,6 +8,7 @@ use rand::seq::SliceRandom;
 use anyhow::{Context, Result};
 use librespot::{
     core::{Session, SpotifyUri},
+    metadata::audio::UniqueFields,
     playback::{
         audio_backend,
         config::{AudioFormat, PlayerConfig},
@@ -37,6 +38,7 @@ pub enum Event {
     TrackChanged {
         uri: String,
         name: String,
+        artists: String,
         duration_ms: u32,
     },
     QueueChanged {
@@ -100,7 +102,8 @@ pub struct Playback {
 }
 
 pub fn start(session: Session) -> Result<Arc<Playback>> {
-    let backend = audio_backend::find(None).context("no audio backend")?;
+    let backend =
+        audio_backend::find(std::env::var("GATEFOLD_BACKEND").ok()).context("no audio backend")?;
     let mixer = SoftMixer::open(MixerConfig::default())?;
 
     let player = Player::new(
@@ -356,11 +359,23 @@ impl Playback {
                     position_ms,
                 });
             }
-            PlayerEvent::TrackChanged { audio_item } => self.emit(Event::TrackChanged {
-                uri: uri_string(&audio_item.track_id),
-                name: audio_item.name.clone(),
-                duration_ms: audio_item.duration_ms,
-            }),
+            PlayerEvent::TrackChanged { audio_item } => {
+                let artists = match &audio_item.unique_fields {
+                    UniqueFields::Track { artists, .. } => artists
+                        .iter()
+                        .map(|artist| artist.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    UniqueFields::Local { artists, .. } => artists.clone().unwrap_or_default(),
+                    UniqueFields::Episode { show_name, .. } => show_name.clone(),
+                };
+                self.emit(Event::TrackChanged {
+                    uri: uri_string(&audio_item.track_id),
+                    name: audio_item.name.clone(),
+                    artists,
+                    duration_ms: audio_item.duration_ms,
+                });
+            }
             PlayerEvent::EndOfTrack { .. } => {
                 self.position_ms.store(0, Ordering::Relaxed);
                 self.advance();
