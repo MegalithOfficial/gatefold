@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use librespot::{
     core::{Session, SpotifyUri},
     metadata::{Metadata, playlist::Playlist},
-    protocol::playlist4_external,
+    protocol::{playlist4_external, playlist4_external::ListAttributes as PlaylistAttributes},
 };
 
 use protobuf::Message;
@@ -41,11 +41,7 @@ pub async fn playlists(session: &Session) -> Result<Vec<PlaylistRef>> {
                 length: meta
                     .map(|meta| meta.length().max(0) as usize)
                     .unwrap_or_default(),
-                picture: attributes.and_then(|a| {
-                    let raw = a.picture();
-                    (!raw.is_empty())
-                        .then(|| raw.iter().map(|byte| format!("{byte:02x}")).collect())
-                }),
+                picture: attributes.and_then(picture),
             });
         }
 
@@ -58,6 +54,20 @@ pub async fn playlists(session: &Session) -> Result<Vec<PlaylistRef>> {
     store(&refs);
 
     Ok(refs)
+}
+
+fn picture(attributes: &PlaylistAttributes) -> Option<String> {
+    let raw = attributes.picture();
+    if !raw.is_empty() {
+        return Some(raw.iter().map(|byte| format!("{byte:02x}")).collect());
+    }
+
+    attributes
+        .picture_size
+        .iter()
+        .find(|size| size.target_name() == "default")
+        .or_else(|| attributes.picture_size.first())
+        .map(|size| size.url().to_owned())
 }
 
 pub fn cached_playlists() -> Vec<PlaylistRef> {

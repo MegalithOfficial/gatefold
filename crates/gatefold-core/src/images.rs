@@ -1,29 +1,34 @@
-use std::path::PathBuf;
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use librespot::core::{FileId, Session};
 
 use crate::net;
 
-pub fn cached(id: &str) -> Option<PathBuf> {
+pub fn cached(picture: &str) -> Option<PathBuf> {
     let path = crate::cache_dir()
         .ok()?
         .join("images")
-        .join(format!("{id}.jpg"));
+        .join(format!("{}.jpg", key(picture)));
     path.exists().then_some(path)
 }
 
-pub async fn fetch(session: &Session, id: &str) -> Result<PathBuf> {
-    let raw = decode(id)?;
-
+pub async fn fetch(session: &Session, picture: &str) -> Result<PathBuf> {
     let dir = crate::cache_dir()?.join("images");
-    let path = dir.join(format!("{id}.jpg"));
+    let path = dir.join(format!("{}.jpg", key(picture)));
     if path.exists() {
         return Ok(path);
     }
 
-    let file = FileId::from_raw(&raw);
-    let bytes = net::fetch(|| session.spclient().get_image(&file)).await?;
+    let bytes = if picture.starts_with("http") {
+        net::fetch(|| session.spclient().request_url(picture)).await?
+    } else {
+        let file = FileId::from_raw(&decode(picture)?);
+        net::fetch(|| session.spclient().get_image(&file)).await?
+    };
 
     std::fs::create_dir_all(&dir)?;
     let staging = path.with_extension("part");
@@ -31,6 +36,16 @@ pub async fn fetch(session: &Session, id: &str) -> Result<PathBuf> {
     std::fs::rename(&staging, &path)?;
 
     Ok(path)
+}
+
+fn key(picture: &str) -> String {
+    if !picture.starts_with("http") {
+        return picture.to_owned();
+    }
+
+    let mut hasher = DefaultHasher::new();
+    picture.hash(&mut hasher);
+    format!("url-{:016x}", hasher.finish())
 }
 
 fn decode(hex: &str) -> Result<Vec<u8>> {

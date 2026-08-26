@@ -12,8 +12,10 @@ async fn main() -> Result<()> {
     println!("\nplaylists: {}", playlists.len());
     for playlist in playlists.iter().take(5) {
         println!(
-            "  {} ({} tracks, by {})",
-            playlist.name, playlist.length, playlist.owner
+            "  {} ({} tracks, art: {})",
+            playlist.name,
+            playlist.length,
+            playlist.picture.is_some()
         );
     }
 
