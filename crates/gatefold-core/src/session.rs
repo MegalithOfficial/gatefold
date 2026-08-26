@@ -65,3 +65,42 @@ fn store(profile: &Profile) {
         let _ = std::fs::rename(&staging, &path);
     }
 }
+
+pub async fn display_name(session: &Session, username: &str) -> Result<String> {
+    if let Some(name) = cached_display_name(session, username) {
+        return Ok(name);
+    }
+
+    let name = user_profile(session, username).await?.name;
+
+    if let Ok(dir) = crate::cache_dir() {
+        let path = dir.join("names.json");
+        let mut names: std::collections::HashMap<String, String> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default();
+        names.insert(username.to_owned(), name.clone());
+        if let Ok(json) = serde_json::to_string(&names) {
+            let staging = path.with_extension("part");
+            if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&staging, json).is_ok() {
+                let _ = std::fs::rename(&staging, &path);
+            }
+        }
+    }
+
+    Ok(name)
+}
+
+pub fn cached_display_name(session: &Session, username: &str) -> Option<String> {
+    if username == session.username()
+        && let Some(profile) = cached_profile()
+    {
+        return Some(profile.name);
+    }
+
+    let dir = crate::cache_dir().ok()?;
+    let json = std::fs::read_to_string(dir.join("names.json")).ok()?;
+    let names: std::collections::HashMap<String, String> = serde_json::from_str(&json).ok()?;
+
+    names.get(username).cloned()
+}

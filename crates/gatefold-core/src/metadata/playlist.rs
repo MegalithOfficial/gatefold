@@ -105,25 +105,13 @@ pub async fn playlist(session: &Session, uri: &str) -> Result<PlaylistInfo> {
         } => user.clone(),
         _ => String::new(),
     };
-    let owner = async {
-        if owner_username.is_empty() {
-            return owner_username;
-        }
-        match crate::session::user_profile(session, &owner_username).await {
-            Ok(profile) => profile.name,
-            Err(error) => {
-                tracing::warn!("playlist owner profile: {error}");
-                owner_username
-            }
-        }
-    };
-    let (tracks, owner) = tokio::join!(super::tracks(session, uris), owner);
+    let tracks = super::tracks(session, uris).await;
 
     Ok(PlaylistInfo {
         uri: playlist.id.to_uri().context("playlist has no usable uri")?,
         name: playlist.attributes.name.clone(),
         description: description_text(&playlist.attributes.description),
-        owner,
+        owner: owner_username,
         updated_at_ms: playlist.timestamp.as_timestamp_ms(),
         tracks,
     })

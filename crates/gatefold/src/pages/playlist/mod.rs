@@ -1,9 +1,9 @@
-use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc, time::Duration};
+use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc};
 
 use gatefold_core::{
     images, metadata,
     model::{PlaylistInfo, PlaylistRef},
-    player,
+    player, session,
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw::prelude::*, gtk};
 
@@ -22,9 +22,8 @@ pub struct PlaylistPage {
     active_queue: bool,
     is_playing: bool,
     uris: Vec<String>,
+    cover_ids: Vec<Option<String>>,
     rows: Vec<(String, gtk::Widget, gtk::Image)>,
-    equalizers: Vec<(String, [gtk::Box; 3])>,
-    equalizer_phase: usize,
     thumbs: Vec<(String, gtk::Image)>,
     play: gtk::Button,
     play_icon: gtk::Image,
@@ -43,7 +42,6 @@ pub enum PlaylistAction {
     Primary,
     ShufflePlay,
     PlayFrom(usize),
-    Pulse,
 }
 
 #[derive(Debug)]
@@ -58,7 +56,6 @@ impl std::fmt::Debug for PlaylistAction {
             PlaylistAction::Primary => write!(f, "Primary"),
             PlaylistAction::ShufflePlay => write!(f, "ShufflePlay"),
             PlaylistAction::PlayFrom(index) => write!(f, "PlayFrom({index})"),
-            PlaylistAction::Pulse => write!(f, "Pulse"),
         }
     }
 }
@@ -66,6 +63,7 @@ impl std::fmt::Debug for PlaylistAction {
 #[derive(Debug)]
 pub enum PlaylistCmd {
     Loaded(u64, Box<PlaylistInfo>),
+    Owner(u64, String),
     Cover(u64, std::path::PathBuf),
     TrackCover(u64, String, std::path::PathBuf),
     Playback(player::Event),
@@ -318,9 +316,8 @@ impl Component for PlaylistPage {
             active_queue: false,
             is_playing: false,
             uris: Vec::new(),
+            cover_ids: Vec::new(),
             rows: Vec::new(),
-            equalizers: Vec::new(),
-            equalizer_phase: 0,
             thumbs: Vec::new(),
             play,
             play_icon,
@@ -334,22 +331,15 @@ impl Component for PlaylistPage {
             shelf,
         };
 
-        let pulse = sender.input_sender().clone();
-        gtk::glib::timeout_add_local(Duration::from_millis(180), move || {
-            pulse.emit(PlaylistAction::Pulse);
-            gtk::glib::ControlFlow::Continue
-        });
-
         ComponentParts { model, widgets: () }
     }
 
     fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match action {
             PlaylistAction::Show(services, playlist) => self.show(services, playlist, &sender),
-            PlaylistAction::Primary => self.primary(),
-            PlaylistAction::ShufflePlay => self.play(0, true),
-            PlaylistAction::PlayFrom(index) => self.play_from(index),
-            PlaylistAction::Pulse => self.pulse(),
+            PlaylistAction::Primary => self.primary(&sender),
+            PlaylistAction::ShufflePlay => self.play(0, true, &sender),
+            PlaylistAction::PlayFrom(index) => self.play_from(index, &sender),
         }
     }
 
@@ -366,7 +356,6 @@ impl Component for PlaylistPage {
                 }
                 self.blurb.set_text(&playlist.description);
                 self.blurb.set_visible(!playlist.description.is_empty());
-                self.owner.set_text(&playlist.owner);
                 let duration_ms: u64 = playlist
                     .tracks
                     .iter()
@@ -386,10 +375,14 @@ impl Component for PlaylistPage {
                     .iter()
                     .map(|track| track.uri.clone())
                     .collect();
+                self.cover_ids = playlist
+                    .tracks
+                    .iter()
+                    .map(|track| track.cover_id.clone())
+                    .collect();
                 self.sync_playback();
 
                 self.rows.clear();
-                self.equalizers.clear();
                 self.thumbs.clear();
                 while let Some(child) = self.shelf.first_child() {
                     self.shelf.remove(&child);
@@ -431,14 +424,12 @@ impl Component for PlaylistPage {
                     equalizer.add_css_class("track-equalizer");
                     equalizer.set_halign(gtk::Align::Center);
                     equalizer.set_valign(gtk::Align::Center);
-                    let bars = std::array::from_fn(|_| {
+                    for _ in 0..3 {
                         let bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
                         bar.add_css_class("track-equalizer-bar");
-                        bar.set_size_request(3, 6);
                         bar.set_valign(gtk::Align::End);
                         equalizer.append(&bar);
-                        bar
-                    });
+                    }
                     leading.add_overlay(&equalizer);
                     row.append(&leading);
 
@@ -526,8 +517,15 @@ impl Component for PlaylistPage {
                     button.connect_clicked(move |_| on_row.emit(PlaylistAction::PlayFrom(index)));
                     self.rows
                         .push((track.uri.clone(), button.clone().upcast(), track_play));
-                    self.equalizers.push((track.uri.clone(), bars));
                     self.shelf.append(&button);
+                }
+            }
+            PlaylistCmd::Owner(request, name) => {
+                if request == *self.requests.borrow() {
+                    self.owner.set_text(&name);
+                    if self.release.text().starts_with("Playlist by") {
+                        self.release.set_text(&format!("Playlist by {name}"));
+                    }
                 }
             }
             PlaylistCmd::Cover(request, path) => {
@@ -545,6 +543,17 @@ impl Component for PlaylistPage {
                         image.set_from_file(Some(&path));
                         image.set_pixel_size(40);
                     }
+                }
+                if self.active_queue
+                    && self
+                        .uris
+                        .iter()
+                        .position(|uri| uri == &self.playing)
+                        .and_then(|index| self.cover_ids.get(index))
+                        .and_then(Option::as_deref)
+                        == Some(&cover_id)
+                {
+                    let _ = sender.output(PlaylistOutput::Cover(path));
                 }
             }
             PlaylistCmd::Playback(event) => self.playback(event),
@@ -566,21 +575,73 @@ impl PlaylistPage {
         self.requests.send_replace(request);
         self.uri = playlist.uri.clone();
         self.title.set_text(&playlist.name);
-        self.owner.set_text(&playlist.owner);
+        let owner_name = session::cached_display_name(&services.session, &playlist.owner);
+        let owner_text = owner_name.clone().unwrap_or_else(|| "…".to_owned());
+        self.owner.set_text(&owner_text);
         self.detail
             .set_text(&format!(" · {} songs", playlist.length));
-        self.release
-            .set_text(&format!("Playlist by {}", playlist.owner));
+        self.release.set_text(&format!("Playlist by {owner_text}"));
+        if owner_name.is_none() {
+            let session = services.session.clone();
+            let username = playlist.owner.clone();
+            let mut requests = self.requests.subscribe();
+            sender.command(move |out, shutdown| {
+                shutdown
+                    .register(async move {
+                        tokio::select! {
+                            result = session::display_name(&session, &username) => {
+                                if let Ok(name) = result {
+                                    let _ = out.send(PlaylistCmd::Owner(request, name));
+                                }
+                            }
+                            _ = requests.changed() => {}
+                        }
+                    })
+                    .drop_on_shutdown()
+            });
+        }
         self.blurb.set_visible(false);
         self.cover.set_paintable(gtk::gdk::Paintable::NONE);
         self.active_queue = false;
         self.refresh_play_button();
         self.uris.clear();
+        self.cover_ids.clear();
         self.rows.clear();
-        self.equalizers.clear();
         self.thumbs.clear();
         while let Some(child) = self.shelf.first_child() {
             self.shelf.remove(&child);
+        }
+        for index in 0..playlist.length.clamp(1, 12) {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+            row.add_css_class("track-skeleton");
+            let bar = |width: i32, height: i32| {
+                let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                bar.add_css_class("skeleton");
+                bar.set_size_request(width, height);
+                bar.set_valign(gtk::Align::Center);
+                bar
+            };
+
+            let number = bar(14, 10);
+            number.set_halign(gtk::Align::End);
+            let leading = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            leading.set_size_request(20, -1);
+            leading.set_halign(gtk::Align::End);
+            leading.append(&number);
+            row.append(&leading);
+
+            let tile = bar(40, 40);
+            row.append(&tile);
+
+            let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
+            text.set_valign(gtk::Align::Center);
+            text.set_hexpand(true);
+            text.append(&bar(150 + (index % 4) as i32 * 30, 14));
+            text.append(&bar(90 + (index % 3) as i32 * 25, 12));
+            row.append(&text);
+
+            row.append(&bar(30, 10));
+            self.shelf.append(&row);
         }
 
         if let Some(picture) = playlist.picture.clone() {
@@ -646,36 +707,53 @@ impl PlaylistPage {
         self.services = Some(services);
     }
 
-    fn primary(&mut self) {
+    fn primary(&mut self, sender: &ComponentSender<Self>) {
         if self.active_queue {
             if let Some(services) = &self.services {
                 services.playback.toggle();
             }
         } else {
-            self.play(0, false);
+            self.play(0, false, sender);
         }
     }
 
-    fn play(&mut self, index: usize, shuffle: bool) {
+    fn play(&mut self, index: usize, shuffle: bool, sender: &ComponentSender<Self>) {
         let Some(services) = &self.services else {
             return;
         };
         if self.uris.is_empty() {
             return;
         }
+        self.apply_track_palette(index, sender);
         services.playback.play_queue(self.uris.clone(), index);
         services.playback.set_shuffle(shuffle);
         self.active_queue = true;
+        self.is_playing = true;
+        if let Some(uri) = self.uris.get(index) {
+            self.playing.clone_from(uri);
+        }
+        self.refresh_rows();
         self.refresh_play_button();
     }
 
-    fn play_from(&mut self, index: usize) {
+    fn play_from(&mut self, index: usize, sender: &ComponentSender<Self>) {
         if self.active_queue && self.uris.get(index) == Some(&self.playing) {
             if let Some(services) = &self.services {
                 services.playback.toggle();
             }
         } else {
-            self.play(index, false);
+            self.play(index, false, sender);
+        }
+    }
+
+    fn apply_track_palette(&self, index: usize, sender: &ComponentSender<Self>) {
+        if let Some(path) = self
+            .cover_ids
+            .get(index)
+            .and_then(Option::as_deref)
+            .and_then(images::cached)
+        {
+            let _ = sender.output(PlaylistOutput::Cover(path));
         }
     }
 
@@ -702,22 +780,6 @@ impl PlaylistPage {
 
         self.refresh_rows();
         self.refresh_play_button();
-    }
-
-    fn pulse(&mut self) {
-        const HEIGHTS: [[i32; 3]; 4] = [[5, 12, 8], [10, 6, 13], [13, 9, 5], [7, 13, 10]];
-
-        if !self.active_queue || !self.is_playing {
-            return;
-        }
-        self.equalizer_phase = (self.equalizer_phase + 1) % HEIGHTS.len();
-        for (uri, bars) in &self.equalizers {
-            if *uri == self.playing {
-                for (bar, height) in bars.iter().zip(HEIGHTS[self.equalizer_phase]) {
-                    bar.set_size_request(3, height);
-                }
-            }
-        }
     }
 
     fn sync_playback(&mut self) {

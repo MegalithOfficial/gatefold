@@ -97,8 +97,34 @@ paned.gatefold > separator {
 
 .track-equalizer-bar {
     min-width: 3px;
+    min-height: 8px;
     border-radius: 999px;
     background: @on_primary_dim;
+}
+
+@keyframes equalize {
+    from { opacity: 0.28; }
+    to { opacity: 1; }
+}
+
+.track.playing-active .track-equalizer-bar {
+    animation: equalize 520ms ease-in-out infinite alternate;
+}
+
+.track-equalizer-bar:nth-child(2) {
+    min-height: 13px;
+}
+
+.track-equalizer-bar:nth-child(3) {
+    min-height: 10px;
+}
+
+.track.playing-active .track-equalizer-bar:nth-child(2) {
+    animation-delay: -210ms;
+}
+
+.track.playing-active .track-equalizer-bar:nth-child(3) {
+    animation-delay: -430ms;
 }
 
 .track.playing-active .track-index {
@@ -160,4 +186,21 @@ paned.gatefold > separator {
 
 .track.playing .track-play {
     color: @on_primary_dim;
+}
+
+@keyframes shimmer {
+    from { opacity: 0.45; }
+    to { opacity: 1; }
+}
+
+.skeleton {
+    background: alpha(@on_surface, 0.07);
+    border-radius: 6px;
+    animation: shimmer 900ms ease-in-out infinite alternate;
+}
+
+.track-skeleton {
+    min-height: 52px;
+    padding: 0 16px;
+    border-radius: 14px;
 }
