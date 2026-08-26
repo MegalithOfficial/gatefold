@@ -31,17 +31,21 @@ pub async fn playlists(session: &Session) -> Result<Vec<PlaylistRef>> {
             };
 
             let meta = contents.meta_items.get(index);
+            let attributes = meta.map(|meta| meta.attributes.get_or_default());
             refs.push(PlaylistRef {
                 uri: uri.to_owned(),
-                name: meta
-                    .map(|meta| meta.attributes.get_or_default().name().to_owned())
-                    .unwrap_or_default(),
+                name: attributes.map(|a| a.name().to_owned()).unwrap_or_default(),
                 owner: meta
                     .map(|meta| meta.owner_username().to_owned())
                     .unwrap_or_default(),
                 length: meta
                     .map(|meta| meta.length().max(0) as usize)
                     .unwrap_or_default(),
+                picture: attributes.and_then(|a| {
+                    let raw = a.picture();
+                    (!raw.is_empty())
+                        .then(|| raw.iter().map(|byte| format!("{byte:02x}")).collect())
+                }),
             });
         }
 
@@ -51,7 +55,33 @@ pub async fn playlists(session: &Session) -> Result<Vec<PlaylistRef>> {
         }
     }
 
+    store(&refs);
+
     Ok(refs)
+}
+
+pub fn cached_playlists() -> Vec<PlaylistRef> {
+    let Ok(dir) = crate::cache_dir() else {
+        return Vec::new();
+    };
+    std::fs::read_to_string(dir.join("library.json"))
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+fn store(refs: &[PlaylistRef]) {
+    let Ok(dir) = crate::cache_dir() else {
+        return;
+    };
+    let Ok(json) = serde_json::to_string(refs) else {
+        return;
+    };
+    let path = dir.join("library.json");
+    let staging = path.with_extension("part");
+    if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&staging, json).is_ok() {
+        let _ = std::fs::rename(&staging, &path);
+    }
 }
 
 pub async fn playlist(session: &Session, uri: &str) -> Result<PlaylistInfo> {

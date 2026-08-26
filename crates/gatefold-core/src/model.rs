@@ -178,12 +178,13 @@ impl AlbumInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PlaylistRef {
     pub uri: String,
     pub name: String,
     pub owner: String,
     pub length: usize,
+    pub picture: Option<String>,
 }
 
 #[derive(Debug, Clone)]

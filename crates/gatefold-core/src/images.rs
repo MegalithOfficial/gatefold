@@ -5,6 +5,14 @@ use librespot::core::{FileId, Session};
 
 use crate::net;
 
+pub fn cached(id: &str) -> Option<PathBuf> {
+    let path = crate::cache_dir()
+        .ok()?
+        .join("images")
+        .join(format!("{id}.jpg"));
+    path.exists().then_some(path)
+}
+
 pub async fn fetch(session: &Session, id: &str) -> Result<PathBuf> {
     let raw = decode(id)?;
 

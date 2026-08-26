@@ -40,6 +40,7 @@ pub enum Event {
         name: String,
         artists: String,
         duration_ms: u32,
+        cover_id: Option<String>,
     },
     QueueChanged {
         index: usize,
@@ -369,11 +370,19 @@ impl Playback {
                     UniqueFields::Local { artists, .. } => artists.clone().unwrap_or_default(),
                     UniqueFields::Episode { show_name, .. } => show_name.clone(),
                 };
+                let cover_id = audio_item
+                    .covers
+                    .iter()
+                    .max_by_key(|cover| cover.width)
+                    .and_then(|cover| cover.url.rsplit('/').next())
+                    .filter(|id| id.len() == 40 && id.chars().all(|c| c.is_ascii_hexdigit()))
+                    .map(str::to_owned);
                 self.emit(Event::TrackChanged {
                     uri: uri_string(&audio_item.track_id),
                     name: audio_item.name.clone(),
                     artists,
                     duration_ms: audio_item.duration_ms,
+                    cover_id,
                 });
             }
             PlayerEvent::EndOfTrack { .. } => {

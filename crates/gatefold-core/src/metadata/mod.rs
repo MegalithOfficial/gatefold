@@ -5,7 +5,7 @@ mod track;
 
 pub use album::album;
 pub use artist::artist;
-pub use playlist::{playlist, playlist_uris, playlists};
+pub use playlist::{cached_playlists, playlist, playlist_uris, playlists};
 pub use track::{cover, track};
 
 use futures::StreamExt;
