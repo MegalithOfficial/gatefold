@@ -9,6 +9,7 @@ pub mod model;
 pub mod net;
 pub mod player;
 pub mod session;
+mod sink;
 
 pub fn cache_dir() -> Result<PathBuf> {
     Ok(dirs::cache_dir()

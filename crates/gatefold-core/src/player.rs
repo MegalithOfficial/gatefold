@@ -8,6 +8,8 @@ use std::{
 
 use rand::seq::SliceRandom;
 
+use crate::sink::{Rodio, SinkHandle};
+
 use anyhow::{Context, Result};
 use librespot::{
     core::{Session, SpotifyUri},
@@ -98,6 +100,7 @@ impl Queue {
 pub struct Playback {
     player: Arc<Player>,
     mixer: SoftMixer,
+    sink: SinkHandle,
     queue: Arc<Mutex<Queue>>,
     repeat: Mutex<Repeat>,
     playing: AtomicBool,
@@ -110,21 +113,35 @@ pub struct Playback {
 const LOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 
 pub fn start(session: Session) -> Result<Arc<Playback>> {
-    let backend =
-        audio_backend::find(std::env::var("GATEFOLD_BACKEND").ok()).context("no audio backend")?;
     let mixer = SoftMixer::open(MixerConfig::default())?;
+    let handle = SinkHandle::default();
 
-    let player = Player::new(
-        PlayerConfig::default(),
-        session,
-        mixer.get_soft_volume(),
-        move || backend(None, AudioFormat::default()),
-    );
+    let player = match std::env::var("GATEFOLD_BACKEND").ok() {
+        Some(name) => {
+            let backend = audio_backend::find(Some(name)).context("no such audio backend")?;
+            Player::new(
+                PlayerConfig::default(),
+                session,
+                mixer.get_soft_volume(),
+                move || backend(None, AudioFormat::default()),
+            )
+        }
+        None => {
+            let sink = handle.clone();
+            Player::new(
+                PlayerConfig::default(),
+                session,
+                mixer.get_soft_volume(),
+                move || Box::new(Rodio::open(&sink).expect("audio output")),
+            )
+        }
+    };
 
     let (events, _) = broadcast::channel(64);
     let playback = Arc::new(Playback {
         player,
         mixer,
+        sink: handle,
         queue: Arc::new(Mutex::new(Queue::default())),
         repeat: Mutex::new(Repeat::Off),
         playing: AtomicBool::new(false),
@@ -225,6 +242,7 @@ impl Playback {
     }
 
     pub fn seek(&self, position_ms: u32) {
+        self.sink.flush();
         self.player.seek(position_ms);
     }
 
@@ -298,11 +316,10 @@ impl Playback {
 
     fn load_current(&self) {
         let epoch = self.load_epoch.fetch_add(1, Ordering::SeqCst) + 1;
-        let (load_epoch, queue, player) = (
-            self.load_epoch.clone(),
-            self.queue.clone(),
-            self.player.clone(),
-        );
+        let load_epoch = self.load_epoch.clone();
+        let queue = self.queue.clone();
+        let player = self.player.clone();
+        let sink = self.sink.clone();
 
         self.runtime.spawn(async move {
             tokio::time::sleep(LOAD_DEBOUNCE).await;
@@ -316,7 +333,10 @@ impl Playback {
             };
 
             match SpotifyUri::from_uri(&uri) {
-                Ok(id) => player.load(id, true, 0),
+                Ok(id) => {
+                    sink.flush();
+                    player.load(id, true, 0);
+                }
                 Err(error) => tracing::error!("bad queue uri {uri}: {error}"),
             }
         });

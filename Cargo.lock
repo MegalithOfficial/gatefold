@@ -873,6 +873,7 @@ dependencies = [
  "librespot",
  "protobuf",
  "rand 0.10.2",
+ "rodio",
  "serde",
  "serde_json",
  "tokio",
