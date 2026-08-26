@@ -17,6 +17,9 @@ pub enum DeckOutput {
 
 pub struct Deck {
     services: Option<Arc<Services>>,
+    uri: String,
+    seeking: bool,
+    seek_epoch: u64,
     cover: Option<PathBuf>,
     title: String,
     artist: String,
@@ -57,7 +60,8 @@ impl std::fmt::Debug for DeckAction {
 #[derive(Debug)]
 pub enum DeckUpdate {
     Playback(player::Event),
-    Cover(PathBuf),
+    Cover(String, PathBuf),
+    SeekSettle(u64),
     Tick,
 }
 
@@ -179,6 +183,7 @@ impl Component for Deck {
                         add_css_class: "now-time",
                     },
 
+                    #[name = "seek"]
                     gtk::Scale {
                         set_hexpand: true,
                         set_size_request: (160, -1),
@@ -256,6 +261,9 @@ impl Component for Deck {
     ) -> ComponentParts<Self> {
         let model = Deck {
             services: None,
+            uri: String::new(),
+            seeking: false,
+            seek_epoch: 0,
             cover: None,
             title: String::new(),
             artist: String::new(),
@@ -317,7 +325,13 @@ impl Component for Deck {
             }),
             DeckAction::Seek(position) => {
                 self.position_ms = position as u32;
-                playback.seek(position as u32);
+                self.seeking = true;
+                self.seek_epoch += 1;
+                let epoch = self.seek_epoch;
+                sender.oneshot_command(async move {
+                    tokio::time::sleep(Duration::from_millis(250)).await;
+                    DeckUpdate::SeekSettle(epoch)
+                });
             }
             DeckAction::Volume(percent) => {
                 self.volume = percent.clamp(0.0, 100.0);
@@ -336,22 +350,32 @@ impl Component for Deck {
         let _sender = _sender;
         match message {
             DeckUpdate::Playback(event) => match event {
-                player::Event::Playing { position_ms, .. } => {
+                player::Event::Loading { uri } => self.uri = uri,
+                player::Event::Playing { uri, position_ms } => {
                     self.playing = true;
-                    self.position_ms = position_ms;
+                    if uri == self.uri && !self.seeking {
+                        self.position_ms = position_ms;
+                    }
                 }
-                player::Event::Paused { position_ms, .. } => {
+                player::Event::Paused { uri, position_ms } => {
                     self.playing = false;
-                    self.position_ms = position_ms;
+                    if uri == self.uri && !self.seeking {
+                        self.position_ms = position_ms;
+                    }
                 }
-                player::Event::Position { position_ms, .. } => self.position_ms = position_ms,
+                player::Event::Position { uri, position_ms } => {
+                    if uri == self.uri && !self.seeking {
+                        self.position_ms = position_ms;
+                    }
+                }
                 player::Event::TrackChanged {
+                    uri,
                     name,
                     artists,
                     duration_ms,
                     cover_id,
-                    ..
                 } => {
+                    self.uri = uri.clone();
                     self.title = name;
                     self.artist = artists;
                     self.duration_ms = duration_ms;
@@ -363,7 +387,7 @@ impl Component for Deck {
                         } else if let Some(services) = self.services.clone() {
                             _sender.oneshot_command(async move {
                                 match images::fetch(&services.session, &id).await {
-                                    Ok(path) => DeckUpdate::Cover(path),
+                                    Ok(path) => DeckUpdate::Cover(uri, path),
                                     Err(error) => {
                                         tracing::warn!("cover: {error}");
                                         DeckUpdate::Tick
@@ -384,12 +408,22 @@ impl Component for Deck {
                 }
                 _ => {}
             },
-            DeckUpdate::Cover(path) => {
-                self.cover = Some(path.clone());
-                let _ = _sender.output(DeckOutput::Cover(path));
+            DeckUpdate::Cover(uri, path) => {
+                if uri == self.uri {
+                    self.cover = Some(path.clone());
+                    let _ = _sender.output(DeckOutput::Cover(path));
+                }
+            }
+            DeckUpdate::SeekSettle(epoch) => {
+                if self.seeking && epoch == self.seek_epoch {
+                    self.seeking = false;
+                    if let Some(services) = &self.services {
+                        services.playback.seek(self.position_ms);
+                    }
+                }
             }
             DeckUpdate::Tick => {
-                if self.playing {
+                if self.playing && !self.seeking {
                     self.position_ms = (self.position_ms + 500).min(self.duration_ms);
                 }
             }

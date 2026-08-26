@@ -1,6 +1,9 @@
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, AtomicU32, Ordering},
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 
 use rand::seq::SliceRandom;
@@ -95,12 +98,16 @@ impl Queue {
 pub struct Playback {
     player: Arc<Player>,
     mixer: SoftMixer,
-    queue: Mutex<Queue>,
+    queue: Arc<Mutex<Queue>>,
     repeat: Mutex<Repeat>,
     playing: AtomicBool,
     position_ms: AtomicU32,
+    load_epoch: Arc<AtomicU64>,
+    runtime: tokio::runtime::Handle,
     events: broadcast::Sender<Event>,
 }
+
+const LOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 
 pub fn start(session: Session) -> Result<Arc<Playback>> {
     let backend =
@@ -118,10 +125,12 @@ pub fn start(session: Session) -> Result<Arc<Playback>> {
     let playback = Arc::new(Playback {
         player,
         mixer,
-        queue: Mutex::new(Queue::default()),
+        queue: Arc::new(Mutex::new(Queue::default())),
         repeat: Mutex::new(Repeat::Off),
         playing: AtomicBool::new(false),
         position_ms: AtomicU32::new(0),
+        load_epoch: Arc::new(AtomicU64::new(0)),
+        runtime: tokio::runtime::Handle::current(),
         events,
     });
 
@@ -288,16 +297,29 @@ impl Playback {
     }
 
     fn load_current(&self) {
-        let uri = self.queue.lock().unwrap().current();
+        let epoch = self.load_epoch.fetch_add(1, Ordering::SeqCst) + 1;
+        let (load_epoch, queue, player) = (
+            self.load_epoch.clone(),
+            self.queue.clone(),
+            self.player.clone(),
+        );
 
-        let Some(uri) = uri else {
-            return;
-        };
+        self.runtime.spawn(async move {
+            tokio::time::sleep(LOAD_DEBOUNCE).await;
+            if load_epoch.load(Ordering::SeqCst) != epoch {
+                return;
+            }
 
-        match SpotifyUri::from_uri(&uri) {
-            Ok(id) => self.player.load(id, true, 0),
-            Err(error) => tracing::error!("bad queue uri {uri}: {error}"),
-        }
+            let uri = queue.lock().unwrap().current();
+            let Some(uri) = uri else {
+                return;
+            };
+
+            match SpotifyUri::from_uri(&uri) {
+                Ok(id) => player.load(id, true, 0),
+                Err(error) => tracing::error!("bad queue uri {uri}: {error}"),
+            }
+        });
     }
 
     fn upcoming(&self) -> Option<String> {
