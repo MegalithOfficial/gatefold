@@ -87,6 +87,7 @@ impl Component for App {
         adw::ApplicationWindow {
             set_title: Some("gatefold"),
             set_default_size: (1440, 920),
+            set_icon_name: Some(crate::APP_ID),
 
             gtk::WindowHandle {
                 gtk::Box {
@@ -161,10 +162,10 @@ impl Component for App {
         let pages = &model.pages;
         pages.add_named(model.home.widget(), Some("home"));
         pages.add_named(model.playlist.widget(), Some("playlist"));
-        let widgets = view_output!();
 
         let icons = gtk::IconTheme::for_display(&gtk::gdk::Display::default().expect("display"));
         icons.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
+        let widgets = view_output!();
 
         crate::shortcuts::install(&root, sender.input_sender());
 

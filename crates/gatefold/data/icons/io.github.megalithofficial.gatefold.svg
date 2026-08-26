@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="445" height="480" viewBox="0 0 445 480">
+  <title>Gatefold</title>
+  <g transform="matrix(0 -1 1 0 0 560)">
+    <circle cx="370" cy="225" r="172" fill="#0F0D14"/>
+    <circle cx="370" cy="225" r="68" fill="#FF8E71"/>
+    <circle cx="370" cy="225" r="15" fill="#1E1A27"/>
+    <path fill="#1E1A27" d="M130 25h245c11 0 20 9 20 20v7c-35 48-55 108-55 173s20 125 55 173v7c0 11-9 20-20 20H130c-16.6 0-30-13.4-30-30V55c0-16.6 13.4-30 30-30Z"/>
+  </g>
+</svg>
