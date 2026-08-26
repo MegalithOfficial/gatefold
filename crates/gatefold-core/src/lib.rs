@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 
 pub mod auth;
 pub mod images;
+pub mod metadata;
 pub mod model;
 pub mod net;
-pub mod metadata;
 pub mod player;
 pub mod session;
 

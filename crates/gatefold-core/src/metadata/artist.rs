@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use librespot::core::{Session, SpotifyUri};
-use librespot::metadata::artist::AlbumGroups;
-use librespot::metadata::{Artist, Metadata};
+use librespot::{
+    core::{Session, SpotifyUri},
+    metadata::{Artist, Metadata, artist::AlbumGroups},
+};
 
-use crate::model::ArtistInfo;
-use crate::net;
+use crate::{model::ArtistInfo, net};
 
 pub async fn artist(session: &Session, uri: &str) -> Result<ArtistInfo> {
     let uri = SpotifyUri::from_uri(uri)?;

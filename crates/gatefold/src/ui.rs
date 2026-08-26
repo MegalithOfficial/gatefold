@@ -1,12 +1,8 @@
-use std::fmt;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{fmt, path::PathBuf, sync::Arc};
 
 use anyhow::Result;
-use gatefold_core::player::Playback;
-use gatefold_core::{cache_dir, metadata, player, session};
-use relm4::adw::prelude::*;
-use relm4::{Component, ComponentParts, ComponentSender, adw, gtk};
+use gatefold_core::{cache_dir, metadata, player, player::Playback, session};
+use relm4::{Component, ComponentParts, ComponentSender, adw, adw::prelude::*, gtk};
 
 pub struct Gatefold {
     cover: Option<PathBuf>,

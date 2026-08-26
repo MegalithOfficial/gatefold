@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
-use librespot::core::{Session, SpotifyUri};
-use librespot::metadata::{Metadata, Track};
+use librespot::{
+    core::{Session, SpotifyUri},
+    metadata::{Metadata, Track},
+};
 
 use crate::net;
 

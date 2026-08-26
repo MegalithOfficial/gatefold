@@ -1,13 +1,19 @@
 use anyhow::{Context, Result};
-use librespot::core::{Session, SpotifyUri};
-use librespot::metadata::Metadata;
-use librespot::metadata::playlist::Playlist;
-use librespot::metadata::playlist::list::SelectedListContent;
-use librespot::protocol::playlist4_external;
+use librespot::{
+    core::{Session, SpotifyUri},
+    metadata::{
+        Metadata,
+        playlist::{Playlist, list::SelectedListContent},
+    },
+    protocol::playlist4_external,
+};
+
 use protobuf::Message;
 
-use crate::model::{PlaylistInfo, PlaylistRef};
-use crate::net;
+use crate::{
+    model::{PlaylistInfo, PlaylistRef},
+    net,
+};
 
 const PAGE: usize = 120;
 
@@ -35,9 +41,15 @@ pub async fn playlists(session: &Session) -> Result<Vec<PlaylistRef>> {
             let meta = metas.get(index);
             refs.push(PlaylistRef {
                 uri,
-                name: meta.map(|meta| meta.attributes.name.clone()).unwrap_or_default(),
-                owner: meta.map(|meta| meta.owner_username.clone()).unwrap_or_default(),
-                length: meta.map(|meta| meta.length.max(0) as usize).unwrap_or_default(),
+                name: meta
+                    .map(|meta| meta.attributes.name.clone())
+                    .unwrap_or_default(),
+                owner: meta
+                    .map(|meta| meta.owner_username.clone())
+                    .unwrap_or_default(),
+                length: meta
+                    .map(|meta| meta.length.max(0) as usize)
+                    .unwrap_or_default(),
             });
         }
 

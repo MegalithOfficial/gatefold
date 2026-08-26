@@ -1,7 +1,7 @@
-use librespot::core::date::Date;
-use librespot::metadata::artist::ArtistsWithRole;
-use librespot::metadata::image::Images;
-use librespot::metadata::{Album, Artist, Track};
+use librespot::{
+    core::date::Date,
+    metadata::{Album, Artist, Track, artist::ArtistsWithRole, image::Images},
+};
 
 #[derive(Debug, Clone)]
 pub struct ArtistRef {

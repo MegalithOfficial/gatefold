@@ -9,11 +9,15 @@ pub use playlist::{playlist, playlists};
 pub use track::{cover, track};
 
 use futures::StreamExt;
-use librespot::core::{Session, SpotifyUri};
-use librespot::metadata::{Album, Metadata, Track};
+use librespot::{
+    core::{Session, SpotifyUri},
+    metadata::{Album, Metadata, Track},
+};
 
-use crate::model::{AlbumRef, TrackInfo};
-use crate::net;
+use crate::{
+    model::{AlbumRef, TrackInfo},
+    net,
+};
 
 const CONCURRENCY: usize = 16;
 

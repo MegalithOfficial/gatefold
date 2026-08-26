@@ -1,6 +1,8 @@
 use anyhow::Result;
-use librespot::core::SessionConfig;
-use librespot::oauth::{OAuthClientBuilder, OAuthToken};
+use librespot::{
+    core::SessionConfig,
+    oauth::{OAuthClientBuilder, OAuthToken},
+};
 
 pub const REDIRECT_URI: &str = "http://127.0.0.1:8898/login";
 

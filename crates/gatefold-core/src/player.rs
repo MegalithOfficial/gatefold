@@ -1,28 +1,57 @@
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU32, Ordering},
+};
 
 use rand::seq::SliceRandom;
 
 use anyhow::{Context, Result};
-use librespot::core::{Session, SpotifyUri};
-use librespot::playback::audio_backend;
-use librespot::playback::config::{AudioFormat, PlayerConfig};
-use librespot::playback::mixer::softmixer::SoftMixer;
-use librespot::playback::mixer::{Mixer, MixerConfig};
-use librespot::playback::player::{Player, PlayerEvent};
+use librespot::{
+    core::{Session, SpotifyUri},
+    playback::{
+        audio_backend,
+        config::{AudioFormat, PlayerConfig},
+        mixer::{Mixer, MixerConfig, softmixer::SoftMixer},
+        player::{Player, PlayerEvent},
+    },
+};
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Loading { uri: String },
-    Playing { uri: String, position_ms: u32 },
-    Paused { uri: String, position_ms: u32 },
-    Position { uri: String, position_ms: u32 },
-    TrackChanged { uri: String, name: String, duration_ms: u32 },
-    QueueChanged { index: usize, length: usize },
-    ShuffleChanged { shuffle: bool },
-    RepeatChanged { repeat: Repeat },
-    Volume { volume: u16 },
+    Loading {
+        uri: String,
+    },
+    Playing {
+        uri: String,
+        position_ms: u32,
+    },
+    Paused {
+        uri: String,
+        position_ms: u32,
+    },
+    Position {
+        uri: String,
+        position_ms: u32,
+    },
+    TrackChanged {
+        uri: String,
+        name: String,
+        duration_ms: u32,
+    },
+    QueueChanged {
+        index: usize,
+        length: usize,
+    },
+    ShuffleChanged {
+        shuffle: bool,
+    },
+    RepeatChanged {
+        repeat: Repeat,
+    },
+    Volume {
+        volume: u16,
+    },
     Stopped,
 }
 
@@ -145,7 +174,8 @@ impl Playback {
 
             let current = queue.order.get(queue.position).copied().unwrap_or(0);
             if shuffle {
-                let mut rest: Vec<usize> = (0..queue.uris.len()).filter(|&i| i != current).collect();
+                let mut rest: Vec<usize> =
+                    (0..queue.uris.len()).filter(|&i| i != current).collect();
                 rest.shuffle(&mut rand::rng());
                 let mut order = vec![current];
                 order.extend(rest);
@@ -268,12 +298,12 @@ impl Playback {
 
     fn upcoming(&self) -> Option<String> {
         let queue = self.queue.lock().unwrap();
-        queue.at(queue.position + 1).or_else(|| {
-            match *self.repeat.lock().unwrap() {
+        queue
+            .at(queue.position + 1)
+            .or_else(|| match *self.repeat.lock().unwrap() {
                 Repeat::Context => queue.at(0),
                 _ => None,
-            }
-        })
+            })
     }
 
     fn handle(&self, event: PlayerEvent) {
