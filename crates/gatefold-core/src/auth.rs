@@ -19,3 +19,14 @@ pub async fn login() -> Result<OAuthToken> {
 
     Ok(client.get_access_token_async().await?)
 }
+
+pub fn web_client_id() -> Option<String> {
+    std::env::var("GATEFOLD_CLIENT_ID")
+        .ok()
+        .or_else(|| {
+            let path = dirs::config_dir()?.join("gatefold/client_id");
+            std::fs::read_to_string(path).ok()
+        })
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+}

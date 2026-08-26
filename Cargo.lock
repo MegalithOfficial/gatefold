@@ -874,6 +874,7 @@ dependencies = [
  "rand 0.10.2",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

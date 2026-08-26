@@ -1,10 +1,7 @@
 use anyhow::{Context, Result};
 use librespot::{
     core::{Session, SpotifyUri},
-    metadata::{
-        Metadata,
-        playlist::{Playlist, list::SelectedListContent},
-    },
+    metadata::{Metadata, playlist::Playlist},
     protocol::playlist4_external,
 };
 
@@ -24,37 +21,32 @@ pub async fn playlists(session: &Session) -> Result<Vec<PlaylistRef>> {
     loop {
         let bytes = net::fetch(|| session.spclient().get_rootlist(from, Some(PAGE))).await?;
         let message = playlist4_external::SelectedListContent::parse_from_bytes(&bytes)?;
-        let page = SelectedListContent::try_from(&message)?;
+        let contents = message.contents.get_or_default();
+        let count = contents.items.len();
 
-        let items = page.contents.items.0;
-        let count = items.len();
-        let metas = page.contents.meta_items.0;
-
-        for (index, item) in items.into_iter().enumerate() {
-            let SpotifyUri::Playlist { .. } = item.id else {
-                continue;
-            };
-            let Ok(uri) = item.id.to_uri() else {
+        for (index, item) in contents.items.iter().enumerate() {
+            let uri = item.uri();
+            let Ok(SpotifyUri::Playlist { .. }) = SpotifyUri::from_uri(uri) else {
                 continue;
             };
 
-            let meta = metas.get(index);
+            let meta = contents.meta_items.get(index);
             refs.push(PlaylistRef {
-                uri,
+                uri: uri.to_owned(),
                 name: meta
-                    .map(|meta| meta.attributes.name.clone())
+                    .map(|meta| meta.attributes.get_or_default().name().to_owned())
                     .unwrap_or_default(),
                 owner: meta
-                    .map(|meta| meta.owner_username.clone())
+                    .map(|meta| meta.owner_username().to_owned())
                     .unwrap_or_default(),
                 length: meta
-                    .map(|meta| meta.length.max(0) as usize)
+                    .map(|meta| meta.length().max(0) as usize)
                     .unwrap_or_default(),
             });
         }
 
         from += count;
-        if count < PAGE || from >= page.length.max(0) as usize {
+        if count < PAGE || from >= message.length().max(0) as usize {
             break;
         }
     }
