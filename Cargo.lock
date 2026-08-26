@@ -870,6 +870,7 @@ dependencies = [
  "dirs",
  "futures",
  "librespot",
+ "protobuf",
  "rand 0.10.2",
  "tokio",
  "tracing",

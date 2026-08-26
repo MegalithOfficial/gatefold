@@ -32,7 +32,14 @@ pub async fn album(session: &Session, uri: &str) -> Result<AlbumInfo> {
     let uri = SpotifyUri::from_uri(uri)?;
     let album = net::fetch(|| Album::get(session, &uri)).await?;
 
-    let tracks: Vec<TrackInfo> = futures::stream::iter(album.tracks().cloned())
+    let uris: Vec<SpotifyUri> = album.tracks().cloned().collect();
+    let tracks = tracks(session, uris).await;
+
+    AlbumInfo::from_album(&album, tracks).context("album has no usable uri")
+}
+
+pub(crate) async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Vec<TrackInfo> {
+    futures::stream::iter(uris)
         .map(|track_uri| {
             let session = session.clone();
             async move { net::fetch(|| Track::get(&session, &track_uri)).await }
@@ -42,13 +49,11 @@ pub async fn album(session: &Session, uri: &str) -> Result<AlbumInfo> {
             match track {
                 Ok(track) => TrackInfo::from_track(&track),
                 Err(error) => {
-                    tracing::warn!("skipping album track: {error}");
+                    tracing::warn!("skipping track: {error}");
                     None
                 }
             }
         })
         .collect()
-        .await;
-
-    AlbumInfo::from_album(&album, tracks).context("album has no usable uri")
+        .await
 }

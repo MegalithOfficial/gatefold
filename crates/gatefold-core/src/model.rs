@@ -91,3 +91,20 @@ impl AlbumInfo {
         })
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct PlaylistRef {
+    pub uri: String,
+    pub name: String,
+    pub owner: String,
+    pub length: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlaylistInfo {
+    pub uri: String,
+    pub name: String,
+    pub description: String,
+    pub owner: String,
+    pub tracks: Vec<TrackInfo>,
+}
