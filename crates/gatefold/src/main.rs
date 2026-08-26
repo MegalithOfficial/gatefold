@@ -1,4 +1,8 @@
-mod ui;
+mod app;
+mod components;
+mod css;
+mod pages;
+mod palette;
 
 use anyhow::{Context, Result};
 use relm4::RelmApp;
@@ -17,9 +21,7 @@ fn main() -> Result<()> {
 
     let app = RelmApp::new(APP_ID).with_args(Vec::new());
 
-    relm4::set_global_css(include_str!("style.css"));
-
-    app.run::<ui::Gatefold>(uri);
+    app.run::<app::App>(uri);
 
     Ok(())
 }

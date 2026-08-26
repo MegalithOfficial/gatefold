@@ -1,0 +1,73 @@
+.deck {
+    background: @surface_high;
+    border-radius: 28px;
+    margin: 12px;
+    padding: 10px 16px 10px 12px;
+}
+
+.thumb {
+    border-radius: 10px;
+}
+
+.now-title {
+    font-weight: 600;
+}
+
+.now-artist {
+    font-size: 9.5pt;
+    color: @on_surface_dim;
+}
+
+.now-time {
+    font-size: 8.5pt;
+    font-family: "Adwaita Mono";
+    color: @on_surface_dim;
+    min-width: 34px;
+}
+
+.deck .icon {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: none;
+    color: @on_surface_dim;
+}
+
+.deck .icon:hover {
+    background: alpha(@on_surface, 0.08);
+    color: @on_surface;
+}
+
+.deck .pause {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: @primary;
+    color: @on_primary;
+}
+
+.deck .pause:hover {
+    background: alpha(@primary, 0.9);
+}
+
+scale.seek trough {
+    min-height: 4px;
+}
+
+scale.seek slider {
+    opacity: 0;
+}
+
+scale.seek:hover slider {
+    opacity: 1;
+}
+
+.volume image {
+    color: @on_surface_dim;
+}

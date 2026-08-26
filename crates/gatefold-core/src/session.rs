@@ -1,5 +1,6 @@
 use anyhow::Result;
-use librespot::core::{Session, SessionConfig, authentication::Credentials, cache::Cache};
+pub use librespot::core::Session;
+use librespot::core::{SessionConfig, authentication::Credentials, cache::Cache};
 
 use crate::auth;
 
