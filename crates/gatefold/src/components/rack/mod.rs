@@ -381,7 +381,7 @@ impl Rack {
                 }
                 None => {
                     tile.add_css_class("tile");
-                    gtk::Image::from_icon_name("emblem-music-symbolic")
+                    gtk::Image::from_icon_name("audio-x-generic-symbolic")
                 }
             };
             glyph.set_halign(gtk::Align::Center);

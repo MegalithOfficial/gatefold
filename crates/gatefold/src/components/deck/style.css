@@ -90,3 +90,17 @@ scale.seek:hover slider {
     margin-top: -3px;
     margin-right: -5px;
 }
+
+.deck .tile {
+    border-radius: 10px;
+    background: @surface_top;
+}
+
+.deck .tile image {
+    color: @on_surface_dim;
+}
+
+.now-title.idle {
+    font-weight: 400;
+    color: @on_surface_dim;
+}

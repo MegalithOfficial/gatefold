@@ -81,13 +81,25 @@ impl Component for Deck {
                 set_spacing: 12,
                 set_valign: gtk::Align::Center,
 
-                gtk::Image {
-                    #[watch]
-                    set_from_file: model.cover.as_ref(),
-                    #[watch]
-                    set_visible: model.cover.is_some(),
-                    set_pixel_size: 52,
-                    add_css_class: "thumb",
+                gtk::Box {
+                    add_css_class: "tile",
+                    set_overflow: gtk::Overflow::Hidden,
+                    set_valign: gtk::Align::Center,
+
+                    gtk::Image {
+                        #[watch]
+                        set_from_file: model.cover.as_ref(),
+                        #[watch]
+                        set_visible: model.cover.is_some(),
+                        set_pixel_size: 52,
+                    },
+
+                    gtk::Image {
+                        set_icon_name: Some("audio-x-generic-symbolic"),
+                        #[watch]
+                        set_visible: model.cover.is_none(),
+                        set_size_request: (52, 52),
+                    },
                 },
 
                 gtk::Box {
@@ -97,6 +109,8 @@ impl Component for Deck {
                     gtk::Label {
                         #[watch]
                         set_label: model.display_title(),
+                        #[watch]
+                        set_class_active: ("idle", model.title.is_empty()),
                         set_xalign: 0.0,
                         set_width_chars: 8,
                         set_max_width_chars: 16,
@@ -107,6 +121,8 @@ impl Component for Deck {
                     gtk::Label {
                         #[watch]
                         set_label: &model.artist,
+                        #[watch]
+                        set_visible: !model.artist.is_empty(),
                         set_xalign: 0.0,
                         set_width_chars: 8,
                         set_max_width_chars: 16,
@@ -235,8 +251,7 @@ impl Component for Deck {
 
                     #[name = "seek"]
                     gtk::Scale {
-                        set_hexpand: true,
-                        set_size_request: (160, -1),
+                        set_size_request: (440, -1),
                         set_valign: gtk::Align::Center,
                         add_css_class: "seek",
                         #[watch]
