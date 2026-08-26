@@ -10,6 +10,7 @@ authors.workspace = true
 [dependencies]
 librespot = "0.8"
 
+futures = "0.3"
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
