@@ -27,6 +27,7 @@ pub struct Rack {
     scroll: gtk::Adjustment,
     shelf: gtk::Box,
     toggle: gtk::Button,
+    search: gtk::Widget,
     avatar: gtk::Label,
     portrait: gtk::Picture,
     username: gtk::Label,
@@ -121,7 +122,7 @@ impl Component for Rack {
         wide_static.push(search.clone().upcast());
         inner.append(&search);
 
-        let find = icon("system-search-symbolic", "nav");
+        let find = icon("system-search-symbolic", "search-icon");
         find.set_tooltip_text(Some("Search"));
         find.set_halign(gtk::Align::Start);
         find.set_visible(false);
@@ -234,6 +235,7 @@ impl Component for Rack {
             scroll: curtain.hadjustment(),
             shelf,
             toggle,
+            search: search.clone().upcast(),
             avatar: avatar.clone(),
             portrait: portrait.clone(),
             username: username.clone(),
@@ -460,6 +462,12 @@ impl Rack {
             .cloned()
             .collect();
 
+        let fade: Vec<gtk::Widget> = wide
+            .iter()
+            .filter(|widget| **widget != self.search)
+            .cloned()
+            .collect();
+
         if !collapse {
             self.inner.set_size_request(WIDE - 2 * PAD, -1);
             for widget in &self.narrow {
@@ -469,6 +477,7 @@ impl Rack {
                 widget.set_opacity(0.0);
                 widget.set_visible(true);
             }
+            self.search.set_opacity(1.0);
         }
 
         if let Some(heading) = self
@@ -481,7 +490,6 @@ impl Rack {
 
         let root = self.root.clone();
         let scroll = self.scroll.clone();
-        let fade = wide.clone();
         let target = adw::CallbackAnimationTarget::new(move |value| {
             root.set_size_request(request(value as i32), -1);
             scroll.set_value(0.0);
