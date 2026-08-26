@@ -125,10 +125,13 @@ entry.search placeholder {
 }
 
 .avatar {
-    min-width: 32px;
-    min-height: 32px;
+    min-width: 40px;
+    min-height: 40px;
     border-radius: 999px;
     background: @primary;
+}
+
+.avatar label {
     color: @on_primary;
     font-weight: 600;
 }

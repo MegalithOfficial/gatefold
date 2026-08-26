@@ -1,6 +1,10 @@
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
-use gatefold_core::{images, metadata, model::PlaylistRef};
+use gatefold_core::{
+    images, metadata,
+    model::{PlaylistRef, Profile},
+    session,
+};
 use relm4::{Component, ComponentParts, ComponentSender, adw, adw::prelude::*, gtk};
 
 use crate::app::Services;
@@ -24,6 +28,7 @@ pub struct Rack {
     shelf: gtk::Box,
     toggle: gtk::Button,
     avatar: gtk::Label,
+    portrait: gtk::Picture,
     username: gtk::Label,
     wide_static: Vec<gtk::Widget>,
     wide_rows: Vec<gtk::Widget>,
@@ -36,6 +41,7 @@ pub struct Rack {
 pub enum RackAction {
     SetServices(Arc<Services>),
     ShowCached,
+    ShowAvatar(std::path::PathBuf),
     ToggleCollapse,
     Open(String),
 }
@@ -45,6 +51,7 @@ impl std::fmt::Debug for RackAction {
         match self {
             RackAction::SetServices(_) => write!(f, "SetServices"),
             RackAction::ShowCached => write!(f, "ShowCached"),
+            RackAction::ShowAvatar(_) => write!(f, "ShowAvatar"),
             RackAction::ToggleCollapse => write!(f, "ToggleCollapse"),
             RackAction::Open(uri) => write!(f, "Open({uri})"),
         }
@@ -60,6 +67,8 @@ pub enum RackOutput {
 pub enum RackCmd {
     Playlists(Vec<PlaylistRef>),
     Picture(String, std::path::PathBuf),
+    Profile(Profile),
+    Avatar(std::path::PathBuf),
 }
 
 impl Component for Rack {
@@ -191,16 +200,29 @@ impl Component for Rack {
 
         let account = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         account.add_css_class("account");
+        let frame = gtk::Overlay::new();
+        frame.add_css_class("avatar");
+        frame.set_overflow(gtk::Overflow::Hidden);
+        frame.set_valign(gtk::Align::Center);
+        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        spacer.set_size_request(40, 40);
+        frame.set_child(Some(&spacer));
         let avatar = gtk::Label::new(Some("·"));
-        avatar.add_css_class("avatar");
-        account.append(&avatar);
+        avatar.set_halign(gtk::Align::Center);
+        avatar.set_valign(gtk::Align::Center);
+        frame.add_overlay(&avatar);
+        let portrait = gtk::Picture::new();
+        portrait.set_content_fit(gtk::ContentFit::Cover);
+        portrait.set_visible(false);
+        frame.add_overlay(&portrait);
+        account.append(&frame);
         let who = gtk::Box::new(gtk::Orientation::Vertical, 0);
         who.set_valign(gtk::Align::Center);
         who.set_hexpand(true);
         let username = label("", "shelf-name");
         username.set_ellipsize(gtk::pango::EllipsizeMode::End);
         who.append(&username);
-        who.append(&label("Premium", "shelf-kind"));
+        who.append(&label("Spotify Premium", "shelf-kind"));
         wide_static.push(who.clone().upcast());
         account.append(&who);
         inner.append(&account);
@@ -213,6 +235,7 @@ impl Component for Rack {
             shelf,
             toggle,
             avatar: avatar.clone(),
+            portrait: portrait.clone(),
             username: username.clone(),
             wide_static,
             wide_rows: Vec::new(),
@@ -231,16 +254,20 @@ impl Component for Rack {
     fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match action {
             RackAction::SetServices(services) => {
-                let name = services.session.username();
-                let initial = name
-                    .chars()
-                    .next()
-                    .unwrap_or('·')
-                    .to_uppercase()
-                    .to_string();
-                self.avatar.set_text(&initial);
-                self.username.set_text(&name);
                 self.services = Some(services.clone());
+                let profile_session = services.session.clone();
+                sender.command(|out, shutdown| {
+                    shutdown
+                        .register(async move {
+                            match session::profile(&profile_session).await {
+                                Ok(profile) => {
+                                    let _ = out.send(RackCmd::Profile(profile));
+                                }
+                                Err(error) => tracing::error!("profile: {error}"),
+                            }
+                        })
+                        .drop_on_shutdown()
+                });
                 sender.command(|out, shutdown| {
                     shutdown
                         .register(async move {
@@ -259,6 +286,14 @@ impl Component for Rack {
                 if !cached.is_empty() {
                     self.render(cached, &sender);
                 }
+                if let Some(profile) = session::cached_profile() {
+                    self.apply_profile(profile, &sender);
+                }
+            }
+            RackAction::ShowAvatar(path) => {
+                self.portrait.set_filename(Some(&path));
+                self.portrait.set_visible(true);
+                self.avatar.set_visible(false);
             }
             RackAction::ToggleCollapse => self.toggle_collapse(),
             RackAction::Open(uri) => {
@@ -275,6 +310,12 @@ impl Component for Rack {
     ) {
         match message {
             RackCmd::Playlists(playlists) => self.render(playlists, &sender),
+            RackCmd::Profile(profile) => self.apply_profile(profile, &sender),
+            RackCmd::Avatar(path) => {
+                self.portrait.set_filename(Some(&path));
+                self.portrait.set_visible(true);
+                self.avatar.set_visible(false);
+            }
             RackCmd::Picture(uri, path) => {
                 for (row_uri, image) in &self.thumbs {
                     if row_uri == &uri {
@@ -294,6 +335,35 @@ impl Component for Rack {
 }
 
 impl Rack {
+    fn apply_profile(&mut self, profile: Profile, sender: &ComponentSender<Self>) {
+        let initial = profile
+            .name
+            .chars()
+            .next()
+            .unwrap_or('·')
+            .to_uppercase()
+            .to_string();
+        self.avatar.set_text(&initial);
+        self.username.set_text(&profile.name);
+
+        let Some(avatar) = profile.avatar else {
+            return;
+        };
+        if let Some(path) = images::cached(&avatar) {
+            sender.input_sender().emit(RackAction::ShowAvatar(path));
+        } else if let Some(services) = self.services.clone() {
+            sender.command(move |out, shutdown| {
+                shutdown
+                    .register(async move {
+                        if let Ok(path) = images::fetch(&services.session, &avatar).await {
+                            let _ = out.send(RackCmd::Avatar(path));
+                        }
+                    })
+                    .drop_on_shutdown()
+            });
+        }
+    }
+
     fn render(&mut self, playlists: Vec<PlaylistRef>, sender: &ComponentSender<Self>) {
         self.wide_rows.clear();
         self.thumbs.clear();

@@ -195,3 +195,9 @@ pub struct PlaylistInfo {
     pub owner: String,
     pub tracks: Vec<TrackInfo>,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Profile {
+    pub name: String,
+    pub avatar: Option<String>,
+}

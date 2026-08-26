@@ -7,6 +7,14 @@ async fn main() -> Result<()> {
 
     let session = session::connect().await?;
     println!("connected as {}", session.username());
+    match session::profile(&session).await {
+        Ok(profile) => println!(
+            "profile: {} avatar: {}",
+            profile.name,
+            profile.avatar.is_some()
+        ),
+        Err(error) => println!("profile failed: {error:#}"),
+    }
 
     let playlists = metadata::playlists(&session).await?;
     println!("\nplaylists: {}", playlists.len());
