@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 
 pub mod auth;
+pub mod images;
 pub mod model;
 pub mod net;
 pub mod metadata;
