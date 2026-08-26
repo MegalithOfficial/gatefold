@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 pub mod auth;
 pub mod model;
+pub mod net;
 pub mod metadata;
 pub mod player;
 pub mod session;
