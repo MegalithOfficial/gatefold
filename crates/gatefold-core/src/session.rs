@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use anyhow::Result;
 
 use crate::{model::Profile, net};
@@ -18,6 +20,18 @@ pub async fn connect() -> Result<Session> {
     session.connect(credentials, true).await?;
 
     Ok(session)
+}
+
+pub fn clear_authentication() -> Result<()> {
+    let dir = crate::cache_dir()?;
+    for name in ["credentials.json", "web-auth.json", "web-auth.part"] {
+        match std::fs::remove_file(dir.join(name)) {
+            Ok(()) => {}
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
 }
 
 fn cache() -> Result<Cache> {

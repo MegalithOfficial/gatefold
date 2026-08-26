@@ -17,6 +17,13 @@ fn main() -> Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    if std::env::args_os()
+        .skip(1)
+        .any(|arg| arg == "--reauthenticate")
+    {
+        gatefold_core::session::clear_authentication()?;
+    }
+
     let app = RelmApp::new(APP_ID).with_args(Vec::new());
 
     app.run::<app::App>(());

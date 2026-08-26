@@ -210,3 +210,175 @@ pub struct Profile {
     pub name: String,
     pub avatar: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchType {
+    Album,
+    Artist,
+    Playlist,
+    Track,
+    Show,
+    Episode,
+    Audiobook,
+}
+
+impl SearchType {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Album => "album",
+            Self::Artist => "artist",
+            Self::Playlist => "playlist",
+            Self::Track => "track",
+            Self::Show => "show",
+            Self::Episode => "episode",
+            Self::Audiobook => "audiobook",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchOptions {
+    pub types: Vec<SearchType>,
+    pub market: Option<String>,
+    pub limit: u8,
+    pub offset: u32,
+    pub include_external_audio: bool,
+}
+
+impl Default for SearchOptions {
+    fn default() -> Self {
+        Self {
+            types: vec![
+                SearchType::Album,
+                SearchType::Artist,
+                SearchType::Playlist,
+                SearchType::Track,
+                SearchType::Show,
+                SearchType::Episode,
+                SearchType::Audiobook,
+            ],
+            market: None,
+            limit: 5,
+            offset: 0,
+            include_external_audio: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SearchResults {
+    pub albums: Option<SearchPage<SearchAlbum>>,
+    pub artists: Option<SearchPage<SearchArtist>>,
+    pub playlists: Option<SearchPage<SearchPlaylist>>,
+    pub tracks: Option<SearchPage<SearchTrack>>,
+    pub shows: Option<SearchPage<SearchShow>>,
+    pub episodes: Option<SearchPage<SearchEpisode>>,
+    pub audiobooks: Option<SearchPage<SearchAudiobook>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchPage<T> {
+    pub href: String,
+    pub items: Vec<T>,
+    pub total: u32,
+    pub limit: u32,
+    pub offset: u32,
+    pub next: Option<String>,
+    pub previous: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchAlbum {
+    pub uri: String,
+    pub name: String,
+    pub artists: Vec<ArtistRef>,
+    pub cover: Option<String>,
+    pub release_date: String,
+    pub total_tracks: u32,
+    pub album_type: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchArtist {
+    pub uri: String,
+    pub name: String,
+    pub portrait: Option<String>,
+    pub followers: u64,
+    pub popularity: u32,
+    pub genres: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchPlaylist {
+    pub uri: String,
+    pub name: String,
+    pub description: String,
+    pub owner: SearchOwner,
+    pub picture: Option<String>,
+    pub total_tracks: u32,
+    pub collaborative: bool,
+    pub public: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchOwner {
+    pub uri: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchTrack {
+    pub uri: String,
+    pub name: String,
+    pub artists: Vec<ArtistRef>,
+    pub album: SearchAlbum,
+    pub duration_ms: u32,
+    pub is_explicit: bool,
+    pub is_playable: Option<bool>,
+    pub popularity: u32,
+    pub disc: u32,
+    pub number: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchShow {
+    pub uri: String,
+    pub name: String,
+    pub publisher: String,
+    pub description: String,
+    pub picture: Option<String>,
+    pub total_episodes: u32,
+    pub is_explicit: bool,
+    pub media_type: String,
+    pub languages: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchEpisode {
+    pub uri: String,
+    pub name: String,
+    pub description: String,
+    pub picture: Option<String>,
+    pub duration_ms: u32,
+    pub release_date: String,
+    pub is_explicit: bool,
+    pub is_playable: Option<bool>,
+    pub languages: Vec<String>,
+    pub audio_preview_url: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchAudiobook {
+    pub uri: String,
+    pub name: String,
+    pub authors: Vec<String>,
+    pub narrators: Vec<String>,
+    pub description: String,
+    pub edition: String,
+    pub picture: Option<String>,
+    pub total_chapters: u32,
+    pub is_explicit: bool,
+    pub media_type: String,
+    pub languages: Vec<String>,
+    pub publisher: String,
+}

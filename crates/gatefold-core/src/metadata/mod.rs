@@ -1,6 +1,7 @@
 mod album;
 mod artist;
 mod playlist;
+mod search;
 mod track;
 
 use std::collections::{HashMap, HashSet};
@@ -8,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 pub use album::album;
 pub use artist::artist;
 pub use playlist::{cached_playlists, playlist, playlist_uris, playlists};
+pub use search::search;
 pub use track::{cover, track};
 
 use futures::StreamExt;
