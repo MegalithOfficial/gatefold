@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
-use gatefold_core::{metadata, model::PlaylistRef};
+use gatefold_core::{images, metadata, model::PlaylistRef};
 use relm4::{Component, ComponentParts, ComponentSender, adw, adw::prelude::*, gtk};
 
 use crate::app::Services;
@@ -27,6 +27,7 @@ pub struct Rack {
     username: gtk::Label,
     wide_static: Vec<gtk::Widget>,
     wide_rows: Vec<gtk::Widget>,
+    thumbs: Vec<(String, gtk::Image)>,
     narrow: Vec<gtk::Widget>,
     collapsed: bool,
     busy: Rc<Cell<bool>>,
@@ -34,6 +35,7 @@ pub struct Rack {
 
 pub enum RackAction {
     SetServices(Arc<Services>),
+    ShowCached,
     ToggleCollapse,
     Open(String),
 }
@@ -42,6 +44,7 @@ impl std::fmt::Debug for RackAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RackAction::SetServices(_) => write!(f, "SetServices"),
+            RackAction::ShowCached => write!(f, "ShowCached"),
             RackAction::ToggleCollapse => write!(f, "ToggleCollapse"),
             RackAction::Open(uri) => write!(f, "Open({uri})"),
         }
@@ -56,6 +59,7 @@ pub enum RackOutput {
 #[derive(Debug)]
 pub enum RackCmd {
     Playlists(Vec<PlaylistRef>),
+    Picture(String, std::path::PathBuf),
 }
 
 impl Component for Rack {
@@ -212,12 +216,14 @@ impl Component for Rack {
             username: username.clone(),
             wide_static,
             wide_rows: Vec::new(),
+            thumbs: Vec::new(),
             narrow,
             collapsed: false,
             busy: Rc::new(Cell::new(false)),
         };
 
-        let _ = (heading, sender);
+        let _ = heading;
+        sender.input(RackAction::ShowCached);
 
         ComponentParts { model, widgets: () }
     }
@@ -248,6 +254,12 @@ impl Component for Rack {
                         .drop_on_shutdown()
                 });
             }
+            RackAction::ShowCached => {
+                let cached = metadata::cached_playlists();
+                if !cached.is_empty() {
+                    self.render(cached, &sender);
+                }
+            }
             RackAction::ToggleCollapse => self.toggle_collapse(),
             RackAction::Open(uri) => {
                 let _ = sender.output(RackOutput::OpenPlaylist(uri));
@@ -262,53 +274,17 @@ impl Component for Rack {
         _root: &Self::Root,
     ) {
         match message {
-            RackCmd::Playlists(playlists) => {
-                self.wide_rows.clear();
-                while let Some(child) = self.shelf.first_child() {
-                    self.shelf.remove(&child);
-                }
-
-                for playlist in playlists {
-                    let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-
-                    let tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-                    tile.add_css_class("tile");
-                    tile.set_size_request(40, 40);
-                    tile.set_valign(gtk::Align::Center);
-                    tile.set_hexpand(false);
-                    let glyph = gtk::Image::from_icon_name("emblem-music-symbolic");
-                    glyph.set_halign(gtk::Align::Center);
-                    glyph.set_hexpand(true);
-                    tile.append(&glyph);
-                    row.append(&tile);
-
-                    let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
-                    text.set_valign(gtk::Align::Center);
-                    text.set_hexpand(true);
-                    let name = label(&playlist.name, "shelf-name");
-                    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                    text.append(&name);
-                    let kind = label(
-                        &format!("Playlist · {} songs", playlist.length),
-                        "shelf-kind",
-                    );
-                    kind.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                    text.append(&kind);
-                    if !self.collapsed {
-                        text.set_visible(true);
-                    } else {
-                        text.set_visible(false);
+            RackCmd::Playlists(playlists) => self.render(playlists, &sender),
+            RackCmd::Picture(uri, path) => {
+                for (row_uri, image) in &self.thumbs {
+                    if row_uri == &uri {
+                        image.set_from_file(Some(&path));
+                        image.set_pixel_size(40);
+                        if let Some(tile) = image.parent() {
+                            tile.remove_css_class("tile");
+                            tile.add_css_class("thumb-frame");
+                        }
                     }
-                    self.wide_rows.push(text.clone().upcast());
-                    row.append(&text);
-
-                    let button = gtk::Button::builder().child(&row).build();
-                    button.add_css_class("record");
-                    button.set_tooltip_text(Some(&playlist.name));
-                    let open = sender.input_sender().clone();
-                    let uri = playlist.uri.clone();
-                    button.connect_clicked(move |_| open.emit(RackAction::Open(uri.clone())));
-                    self.shelf.append(&button);
                 }
             }
         }
@@ -318,6 +294,81 @@ impl Component for Rack {
 }
 
 impl Rack {
+    fn render(&mut self, playlists: Vec<PlaylistRef>, sender: &ComponentSender<Self>) {
+        self.wide_rows.clear();
+        self.thumbs.clear();
+        while let Some(child) = self.shelf.first_child() {
+            self.shelf.remove(&child);
+        }
+
+        for playlist in playlists {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+
+            let tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            tile.set_size_request(40, 40);
+            tile.set_valign(gtk::Align::Center);
+            tile.set_hexpand(false);
+            tile.set_overflow(gtk::Overflow::Hidden);
+            let cached = playlist.picture.as_deref().and_then(images::cached);
+            let glyph = match &cached {
+                Some(path) => {
+                    tile.add_css_class("thumb-frame");
+                    let image = gtk::Image::from_file(path);
+                    image.set_pixel_size(40);
+                    image
+                }
+                None => {
+                    tile.add_css_class("tile");
+                    gtk::Image::from_icon_name("emblem-music-symbolic")
+                }
+            };
+            glyph.set_halign(gtk::Align::Center);
+            glyph.set_hexpand(true);
+            tile.append(&glyph);
+            row.append(&tile);
+            self.thumbs.push((playlist.uri.clone(), glyph));
+
+            if cached.is_none()
+                && let (Some(picture), Some(services)) = (&playlist.picture, &self.services)
+            {
+                let (services, id, uri) = (services.clone(), picture.clone(), playlist.uri.clone());
+                sender.command(move |out, shutdown| {
+                    shutdown
+                        .register(async move {
+                            if let Ok(path) = images::fetch(&services.session, &id).await {
+                                let _ = out.send(RackCmd::Picture(uri, path));
+                            }
+                        })
+                        .drop_on_shutdown()
+                });
+            }
+
+            let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
+            text.set_valign(gtk::Align::Center);
+            text.set_hexpand(true);
+            let name = label(&playlist.name, "shelf-name");
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            text.append(&name);
+            let kind = label(
+                &format!("Playlist · {} songs", playlist.length),
+                "shelf-kind",
+            );
+            kind.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            text.append(&kind);
+            text.set_visible(!self.collapsed);
+            self.wide_rows.push(text.clone().upcast());
+            row.append(&text);
+
+            let button = gtk::Button::builder().child(&row).build();
+            button.add_css_class("record");
+            button.set_tooltip_text(Some(&playlist.name));
+            let open = sender.input_sender().clone();
+            let uri = playlist.uri.clone();
+            button.connect_clicked(move |_| open.emit(RackAction::Open(uri.clone())));
+            self.shelf.append(&button);
+        }
+    }
+
     fn toggle_collapse(&mut self) {
         if self.busy.replace(true) {
             return;

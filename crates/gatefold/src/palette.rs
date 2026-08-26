@@ -1,3 +1,5 @@
+use relm4::gtk::{gdk, gdk::prelude::*};
+
 #[derive(Default)]
 pub struct Palette {
     pub hue: f64,
@@ -5,6 +7,60 @@ pub struct Palette {
 }
 
 impl Palette {
+    pub fn from_cover(path: &std::path::Path) -> Self {
+        let Ok(texture) = gdk::Texture::from_filename(path) else {
+            return Self {
+                hue: 0.0,
+                saturation: 0.0,
+            };
+        };
+
+        let (width, height) = (texture.width() as usize, texture.height() as usize);
+        let stride = width * 4;
+        let mut data = vec![0u8; stride * height];
+        texture.download(&mut data, stride);
+        let mut buckets = [(0.0f64, 0.0f64, 0usize); 24];
+
+        for y in (0..height).step_by(3) {
+            for x in (0..width).step_by(3) {
+                let i = y * stride + x * 4;
+                let (b, g, r) = (
+                    data[i] as f64 / 255.0,
+                    data[i + 1] as f64 / 255.0,
+                    data[i + 2] as f64 / 255.0,
+                );
+                let (hue, saturation, value) = to_hsv(r, g, b);
+
+                if saturation < 0.35 || !(0.2..0.95).contains(&value) {
+                    continue;
+                }
+
+                let slot = ((hue / 360.0 * 24.0) as usize).min(23);
+                buckets[slot].0 += hue;
+                buckets[slot].1 += saturation;
+                buckets[slot].2 += 1;
+            }
+        }
+
+        let best = buckets
+            .iter()
+            .max_by_key(|bucket| bucket.2)
+            .copied()
+            .unwrap_or_default();
+
+        if best.2 == 0 {
+            return Self {
+                hue: 0.0,
+                saturation: 0.0,
+            };
+        }
+
+        Self {
+            hue: best.0 / best.2 as f64,
+            saturation: (best.1 / best.2 as f64).min(0.85),
+        }
+    }
+
     pub fn css(&self) -> String {
         let tone = |saturation: f64, value: f64| {
             let (r, g, b) = to_rgb(self.hue, self.saturation * saturation, value);
@@ -30,6 +86,27 @@ impl Palette {
         .map(|(name, hex)| format!("@define-color {name} {hex};\n"))
         .collect()
     }
+}
+
+fn to_hsv(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+
+    let hue = if delta == 0.0 {
+        0.0
+    } else if max == r {
+        60.0 * (((g - b) / delta) % 6.0)
+    } else if max == g {
+        60.0 * ((b - r) / delta + 2.0)
+    } else {
+        60.0 * ((r - g) / delta + 4.0)
+    };
+
+    let hue = if hue < 0.0 { hue + 360.0 } else { hue };
+    let saturation = if max == 0.0 { 0.0 } else { delta / max };
+
+    (hue, saturation, max)
 }
 
 fn to_rgb(hue: f64, saturation: f64, value: f64) -> (u8, u8, u8) {

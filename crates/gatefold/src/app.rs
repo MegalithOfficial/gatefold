@@ -14,7 +14,7 @@ use relm4::{
 
 use crate::{
     components::{
-        deck::{Deck, DeckAction},
+        deck::{Deck, DeckAction, DeckOutput},
         rack::{Rack, RackAction, RackOutput},
     },
     css,
@@ -28,6 +28,7 @@ pub struct Services {
 }
 
 pub struct App {
+    css: gtk::CssProvider,
     services: Option<Arc<Services>>,
     rack: Controller<Rack>,
     home: Controller<Home>,
@@ -37,6 +38,7 @@ pub struct App {
 #[derive(Debug)]
 pub enum AppAction {
     OpenPlaylist(String),
+    Cover(std::path::PathBuf),
 }
 
 pub enum AppCmd {
@@ -100,6 +102,7 @@ impl Component for App {
         );
 
         let model = App {
+            css,
             services: None,
             rack: Rack::builder()
                 .launch(())
@@ -107,7 +110,11 @@ impl Component for App {
                     AppAction::OpenPlaylist(uri)
                 }),
             home: Home::builder().launch(()).detach(),
-            deck: Deck::builder().launch(()).detach(),
+            deck: Deck::builder()
+                .launch(())
+                .forward(sender.input_sender(), |DeckOutput::Cover(path)| {
+                    AppAction::Cover(path)
+                }),
         };
         let widgets = view_output!();
 
@@ -123,6 +130,10 @@ impl Component for App {
 
     fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match action {
+            AppAction::Cover(path) => {
+                let palette = Palette::from_cover(&path);
+                self.css.load_from_string(&css::stylesheet(&palette));
+            }
             AppAction::OpenPlaylist(uri) => {
                 let Some(services) = self.services.clone() else {
                     return;

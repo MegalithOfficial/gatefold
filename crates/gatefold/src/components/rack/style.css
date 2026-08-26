@@ -148,3 +148,7 @@ entry.search placeholder {
     background: alpha(@on_surface, 0.08);
     color: @on_surface;
 }
+
+.thumb-frame {
+    border-radius: 6px;
+}

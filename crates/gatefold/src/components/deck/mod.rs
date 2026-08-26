@@ -1,11 +1,19 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use gatefold_core::player::{self, Repeat};
+use gatefold_core::{
+    images,
+    player::{self, Repeat},
+};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk, gtk::prelude::*};
 
 use crate::app::Services;
 
 pub const CSS: &str = include_str!("style.css");
+
+#[derive(Debug)]
+pub enum DeckOutput {
+    Cover(PathBuf),
+}
 
 pub struct Deck {
     services: Option<Arc<Services>>,
@@ -49,6 +57,7 @@ impl std::fmt::Debug for DeckAction {
 #[derive(Debug)]
 pub enum DeckUpdate {
     Playback(player::Event),
+    Cover(PathBuf),
     Tick,
 }
 
@@ -56,7 +65,7 @@ pub enum DeckUpdate {
 impl Component for Deck {
     type Init = ();
     type Input = DeckAction;
-    type Output = ();
+    type Output = DeckOutput;
     type CommandOutput = DeckUpdate;
 
     view! {
@@ -324,6 +333,7 @@ impl Component for Deck {
         _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
+        let _sender = _sender;
         match message {
             DeckUpdate::Playback(event) => match event {
                 player::Event::Playing { position_ms, .. } => {
@@ -339,12 +349,29 @@ impl Component for Deck {
                     name,
                     artists,
                     duration_ms,
+                    cover_id,
                     ..
                 } => {
                     self.title = name;
                     self.artist = artists;
                     self.duration_ms = duration_ms;
                     self.position_ms = 0;
+                    if let Some(id) = cover_id {
+                        if let Some(path) = images::cached(&id) {
+                            self.cover = Some(path.clone());
+                            let _ = _sender.output(DeckOutput::Cover(path));
+                        } else if let Some(services) = self.services.clone() {
+                            _sender.oneshot_command(async move {
+                                match images::fetch(&services.session, &id).await {
+                                    Ok(path) => DeckUpdate::Cover(path),
+                                    Err(error) => {
+                                        tracing::warn!("cover: {error}");
+                                        DeckUpdate::Tick
+                                    }
+                                }
+                            });
+                        }
+                    }
                 }
                 player::Event::ShuffleChanged { shuffle } => self.shuffle = shuffle,
                 player::Event::RepeatChanged { repeat } => self.repeat = repeat,
@@ -357,6 +384,10 @@ impl Component for Deck {
                 }
                 _ => {}
             },
+            DeckUpdate::Cover(path) => {
+                self.cover = Some(path.clone());
+                let _ = _sender.output(DeckOutput::Cover(path));
+            }
             DeckUpdate::Tick => {
                 if self.playing {
                     self.position_ms = (self.position_ms + 500).min(self.duration_ms);
