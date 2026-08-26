@@ -72,7 +72,7 @@ impl Component for App {
     view! {
         adw::ApplicationWindow {
             set_title: Some("gatefold"),
-            set_default_size: (1240, 820),
+            set_default_size: (1440, 920),
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
