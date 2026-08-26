@@ -4,7 +4,7 @@ mod css;
 mod pages;
 mod palette;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use relm4::RelmApp;
 use tracing_subscriber::EnvFilter;
 
@@ -15,13 +15,9 @@ fn main() -> Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
-    let uri = std::env::args()
-        .nth(1)
-        .context("usage: gatefold <spotify track uri>")?;
-
     let app = RelmApp::new(APP_ID).with_args(Vec::new());
 
-    app.run::<app::App>(uri);
+    app.run::<app::App>(());
 
     Ok(())
 }

@@ -1,0 +1,150 @@
+.rack {
+    background: @surface_low;
+    border-radius: 28px;
+    margin: 12px;
+}
+
+.rack-inner {
+    padding: 12px 8px;
+}
+
+entry.search {
+    min-height: 36px;
+    padding: 0 12px 0 16px;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    border-radius: 999px;
+    background: alpha(@on_surface, 0.07);
+    color: @on_surface;
+}
+
+entry.search:focus {
+    background: alpha(@on_surface, 0.12);
+}
+
+entry.search image {
+    color: @on_surface_dim;
+    margin-right: 10px;
+}
+
+entry.search placeholder {
+    color: @on_surface_dim;
+}
+
+.nav {
+    min-width: 16px;
+    min-height: 36px;
+    padding: 0 12px 0 16px;
+    border: none;
+    box-shadow: none;
+    border-radius: 12px;
+    background: none;
+    color: @on_surface_dim;
+    font-weight: 500;
+}
+
+.nav:hover {
+    background: @surface_high;
+    color: @on_surface;
+}
+
+.nav image {
+    color: @on_surface_dim;
+}
+
+.shelf-head {
+    margin: 20px 4px 4px 8px;
+}
+
+.shelf-title {
+    font-size: 11pt;
+    font-weight: 600;
+}
+
+.chips {
+    padding: 4px 4px 10px 4px;
+    background: none;
+}
+
+.chip {
+    min-height: 26px;
+    padding: 0 12px;
+    border: none;
+    box-shadow: none;
+    border-radius: 8px;
+    background: alpha(@on_surface, 0.07);
+    color: @on_surface_dim;
+    font-size: 9.5pt;
+    font-weight: 500;
+}
+
+.chip:hover {
+    background: alpha(@on_surface, 0.12);
+    color: @on_surface;
+}
+
+.record {
+    min-height: 52px;
+    padding: 0 4px;
+    border: none;
+    box-shadow: none;
+    border-radius: 12px;
+    background: none;
+    color: @on_surface;
+    font-weight: 400;
+}
+
+.record:hover {
+    background: @surface_high;
+}
+
+.tile {
+    border-radius: 6px;
+    background: @primary_dim;
+    color: @on_primary_dim;
+}
+
+.shelf-name {
+    font-size: 10pt;
+    font-weight: 400;
+}
+
+.shelf-kind {
+    font-size: 8.5pt;
+    color: @on_surface_dim;
+}
+
+.utility {
+    margin-top: 8px;
+}
+
+.account {
+    margin-top: 6px;
+    padding: 4px 4px 4px 8px;
+}
+
+.avatar {
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 999px;
+    background: @primary;
+    color: @on_primary;
+    font-weight: 600;
+}
+
+.nudge {
+    min-width: 26px;
+    min-height: 26px;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: none;
+    color: @on_surface_dim;
+}
+
+.nudge:hover {
+    background: alpha(@on_surface, 0.08);
+    color: @on_surface;
+}

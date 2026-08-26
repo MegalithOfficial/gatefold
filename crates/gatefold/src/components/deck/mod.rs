@@ -1,9 +1,9 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use gatefold_core::player;
-use relm4::{Component, ComponentParts, ComponentSender, gtk, gtk::prelude::*};
+use gatefold_core::player::{self, Repeat};
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk, gtk::prelude::*};
 
-use crate::app::{Services, Track};
+use crate::app::Services;
 
 pub const CSS: &str = include_str!("style.css");
 
@@ -13,16 +13,20 @@ pub struct Deck {
     title: String,
     artist: String,
     playing: bool,
+    shuffle: bool,
+    repeat: Repeat,
     position_ms: u32,
     duration_ms: u32,
     volume: f64,
 }
 
 pub enum DeckAction {
-    SetTrack(Arc<Services>, Track),
+    SetServices(Arc<Services>),
     Toggle,
     Previous,
     Next,
+    Shuffle,
+    Repeat,
     Seek(f64),
     Volume(f64),
 }
@@ -30,8 +34,14 @@ pub enum DeckAction {
 impl std::fmt::Debug for DeckAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DeckAction::SetTrack(_, track) => write!(f, "SetTrack({})", track.title),
-            action => write!(f, "{action:?}"),
+            DeckAction::SetServices(_) => write!(f, "SetServices"),
+            DeckAction::Toggle => write!(f, "Toggle"),
+            DeckAction::Previous => write!(f, "Previous"),
+            DeckAction::Next => write!(f, "Next"),
+            DeckAction::Shuffle => write!(f, "Shuffle"),
+            DeckAction::Repeat => write!(f, "Repeat"),
+            DeckAction::Seek(value) => write!(f, "Seek({value})"),
+            DeckAction::Volume(value) => write!(f, "Volume({value})"),
         }
     }
 }
@@ -61,6 +71,8 @@ impl Component for Deck {
                 gtk::Image {
                     #[watch]
                     set_from_file: model.cover.as_ref(),
+                    #[watch]
+                    set_visible: model.cover.is_some(),
                     set_pixel_size: 52,
                     add_css_class: "thumb",
                 },
@@ -71,7 +83,7 @@ impl Component for Deck {
 
                     gtk::Label {
                         #[watch]
-                        set_label: &model.title,
+                        set_label: model.display_title(),
                         set_xalign: 0.0,
                         set_width_chars: 8,
                         set_max_width_chars: 16,
@@ -102,6 +114,14 @@ impl Component for Deck {
                     set_halign: gtk::Align::Center,
 
                     gtk::Button {
+                        set_icon_name: "media-playlist-shuffle-symbolic",
+                        #[watch]
+                        set_class_active: ("active", model.shuffle),
+                        add_css_class: "icon",
+                        connect_clicked => DeckAction::Shuffle,
+                    },
+
+                    gtk::Button {
                         set_icon_name: "media-skip-backward-symbolic",
                         add_css_class: "icon",
                         connect_clicked => DeckAction::Previous,
@@ -124,6 +144,19 @@ impl Component for Deck {
                         set_icon_name: "media-skip-forward-symbolic",
                         add_css_class: "icon",
                         connect_clicked => DeckAction::Next,
+                    },
+
+                    gtk::Button {
+                        #[watch]
+                        set_icon_name: if model.repeat == Repeat::Track {
+                            "media-playlist-repeat-song-symbolic"
+                        } else {
+                            "media-playlist-repeat-symbolic"
+                        },
+                        #[watch]
+                        set_class_active: ("active", model.repeat != Repeat::Off),
+                        add_css_class: "icon",
+                        connect_clicked => DeckAction::Repeat,
                     },
                 },
 
@@ -164,25 +197,44 @@ impl Component for Deck {
 
             #[wrap(Some)]
             set_end_widget = &gtk::Box {
-                add_css_class: "volume",
-                set_spacing: 6,
+                set_spacing: 2,
                 set_valign: gtk::Align::Center,
 
-                gtk::Image {
-                    set_icon_name: Some("audio-volume-medium-symbolic"),
+                gtk::Button {
+                    set_icon_name: "view-list-symbolic",
+                    set_tooltip_text: Some("Queue"),
+                    add_css_class: "icon",
                 },
 
-                gtk::Scale {
-                    set_size_request: (90, -1),
+                gtk::Box {
+                    add_css_class: "volume",
+                    set_spacing: 6,
                     set_valign: gtk::Align::Center,
-                    set_range: (0.0, 100.0),
-                    #[watch]
-                    #[block_signal(volume_handler)]
-                    set_value: model.volume,
-                    connect_change_value[sender] => move |_, _, value| {
-                        sender.input(DeckAction::Volume(value));
-                        gtk::glib::Propagation::Proceed
-                    } @volume_handler,
+                    set_margin_start: 6,
+                    set_margin_end: 6,
+
+                    gtk::Image {
+                        set_icon_name: Some("audio-volume-medium-symbolic"),
+                    },
+
+                    gtk::Scale {
+                        set_size_request: (90, -1),
+                        set_valign: gtk::Align::Center,
+                        set_range: (0.0, 100.0),
+                        #[watch]
+                        #[block_signal(volume_handler)]
+                        set_value: model.volume,
+                        connect_change_value[sender] => move |_, _, value| {
+                            sender.input(DeckAction::Volume(value));
+                            gtk::glib::Propagation::Proceed
+                        } @volume_handler,
+                    },
+                },
+
+                gtk::Button {
+                    set_icon_name: "view-fullscreen-symbolic",
+                    set_tooltip_text: Some("Full screen"),
+                    add_css_class: "icon",
                 },
             },
         }
@@ -199,25 +251,21 @@ impl Component for Deck {
             title: String::new(),
             artist: String::new(),
             playing: false,
+            shuffle: false,
+            repeat: Repeat::Off,
             position_ms: 0,
             duration_ms: 0,
             volume: 100.0,
         };
         let widgets = view_output!();
-        let _ = sender;
+        let _ = (root, sender);
 
         ComponentParts { model, widgets }
     }
 
     fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
-        if let DeckAction::SetTrack(services, track) = action {
-            self.cover = Some(track.cover);
-            self.title = track.title;
-            self.artist = track.artist;
-            self.duration_ms = track.duration_ms;
+        if let DeckAction::SetServices(services) = action {
             self.volume = services.playback.volume() as f64 / u16::MAX as f64 * 100.0;
-            self.playing = true;
-
             let mut events = services.playback.events();
             self.services = Some(services);
             sender.command(|out, shutdown| {
@@ -252,6 +300,12 @@ impl Component for Deck {
             DeckAction::Toggle => playback.toggle(),
             DeckAction::Previous => playback.previous(),
             DeckAction::Next => playback.next(),
+            DeckAction::Shuffle => playback.set_shuffle(!self.shuffle),
+            DeckAction::Repeat => playback.set_repeat(match self.repeat {
+                Repeat::Off => Repeat::Context,
+                Repeat::Context => Repeat::Track,
+                Repeat::Track => Repeat::Off,
+            }),
             DeckAction::Seek(position) => {
                 self.position_ms = position as u32;
                 playback.seek(position as u32);
@@ -260,7 +314,7 @@ impl Component for Deck {
                 self.volume = percent.clamp(0.0, 100.0);
                 playback.set_volume((self.volume / 100.0 * u16::MAX as f64) as u16);
             }
-            DeckAction::SetTrack(..) => {}
+            DeckAction::SetServices(_) => {}
         }
     }
 
@@ -282,12 +336,18 @@ impl Component for Deck {
                 }
                 player::Event::Position { position_ms, .. } => self.position_ms = position_ms,
                 player::Event::TrackChanged {
-                    name, duration_ms, ..
+                    name,
+                    artists,
+                    duration_ms,
+                    ..
                 } => {
                     self.title = name;
+                    self.artist = artists;
                     self.duration_ms = duration_ms;
                     self.position_ms = 0;
                 }
+                player::Event::ShuffleChanged { shuffle } => self.shuffle = shuffle,
+                player::Event::RepeatChanged { repeat } => self.repeat = repeat,
                 player::Event::Volume { volume } => {
                     self.volume = volume as f64 / u16::MAX as f64 * 100.0;
                 }
@@ -302,6 +362,16 @@ impl Component for Deck {
                     self.position_ms = (self.position_ms + 500).min(self.duration_ms);
                 }
             }
+        }
+    }
+}
+
+impl Deck {
+    fn display_title(&self) -> &str {
+        if self.title.is_empty() {
+            "Nothing playing"
+        } else {
+            &self.title
         }
     }
 }

@@ -5,7 +5,8 @@ const GLOBAL: &str = include_str!("style.css");
 const SHEETS: &[&str] = &[
     GLOBAL,
     crate::components::deck::CSS,
-    crate::pages::now_playing::CSS,
+    crate::components::rack::CSS,
+    crate::pages::home::CSS,
 ];
 
 pub fn stylesheet(palette: &Palette) -> String {

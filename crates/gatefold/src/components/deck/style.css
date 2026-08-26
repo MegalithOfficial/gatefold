@@ -71,3 +71,7 @@ scale.seek:hover slider {
 .volume image {
     color: @on_surface_dim;
 }
+
+.deck .icon.active {
+    color: @primary;
+}
