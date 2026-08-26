@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use gatefold_core::{
     metadata,
+    model::PlaylistRef,
     player::{self, Playback},
     session,
     session::Session,
@@ -18,7 +19,10 @@ use crate::{
         rack::{Rack, RackAction, RackOutput},
     },
     css,
-    pages::home::Home,
+    pages::{
+        home::Home,
+        playlist::{PlaylistAction, PlaylistOutput, PlaylistPage},
+    },
     palette::Palette,
 };
 
@@ -30,20 +34,22 @@ pub struct Services {
 pub struct App {
     css: gtk::CssProvider,
     services: Option<Arc<Services>>,
+    pages: gtk::Stack,
     rack: Controller<Rack>,
     home: Controller<Home>,
+    playlist: Controller<PlaylistPage>,
     deck: Controller<Deck>,
 }
 
 #[derive(Debug)]
 pub enum AppAction {
-    OpenPlaylist(String),
+    OpenPlaylist(Box<PlaylistRef>),
+    OpenHome,
     Cover(std::path::PathBuf),
 }
 
 pub enum AppCmd {
     Ready(Arc<Services>),
-    Queue(Vec<String>),
     Failed(String),
 }
 
@@ -51,7 +57,6 @@ impl std::fmt::Debug for AppCmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AppCmd::Ready(_) => write!(f, "Ready"),
-            AppCmd::Queue(uris) => write!(f, "Queue({})", uris.len()),
             AppCmd::Failed(error) => write!(f, "Failed({error})"),
         }
     }
@@ -78,8 +83,10 @@ impl Component for App {
                     set_orientation: gtk::Orientation::Vertical,
                     set_hexpand: true,
 
-                    model.home.widget() {
+                    #[local_ref]
+                    pages -> gtk::Stack {
                         set_vexpand: true,
+                        set_transition_type: gtk::StackTransitionType::Crossfade,
                     },
 
                     model.deck.widget() {},
@@ -104,18 +111,29 @@ impl Component for App {
         let model = App {
             css,
             services: None,
-            rack: Rack::builder()
-                .launch(())
-                .forward(sender.input_sender(), |RackOutput::OpenPlaylist(uri)| {
-                    AppAction::OpenPlaylist(uri)
-                }),
+            pages: gtk::Stack::new(),
+            rack: Rack::builder().launch(()).forward(
+                sender.input_sender(),
+                |output| match output {
+                    RackOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
+                    RackOutput::OpenHome => AppAction::OpenHome,
+                },
+            ),
             home: Home::builder().launch(()).detach(),
+            playlist: PlaylistPage::builder()
+                .launch(())
+                .forward(sender.input_sender(), |PlaylistOutput::Cover(path)| {
+                    AppAction::Cover(path)
+                }),
             deck: Deck::builder()
                 .launch(())
                 .forward(sender.input_sender(), |DeckOutput::Cover(path)| {
                     AppAction::Cover(path)
                 }),
         };
+        let pages = &model.pages;
+        pages.add_named(model.home.widget(), Some("home"));
+        pages.add_named(model.playlist.widget(), Some("playlist"));
         let widgets = view_output!();
 
         sender.oneshot_command(async move {
@@ -128,22 +146,20 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, action: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
         match action {
             AppAction::Cover(path) => {
                 let palette = Palette::from_cover(&path);
                 self.css.load_from_string(&css::stylesheet(&palette));
             }
-            AppAction::OpenPlaylist(uri) => {
+            AppAction::OpenHome => self.pages.set_visible_child_name("home"),
+            AppAction::OpenPlaylist(playlist) => {
                 let Some(services) = self.services.clone() else {
                     return;
                 };
-                sender.oneshot_command(async move {
-                    match metadata::playlist_uris(&services.session, &uri).await {
-                        Ok(uris) => AppCmd::Queue(uris),
-                        Err(error) => AppCmd::Failed(error.to_string()),
-                    }
-                });
+                self.playlist
+                    .emit(PlaylistAction::Show(services, *playlist));
+                self.pages.set_visible_child_name("playlist");
             }
         }
     }
@@ -154,15 +170,16 @@ impl Component for App {
         _sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
+        let _sender = _sender;
         match message {
             AppCmd::Ready(services) => {
                 self.rack.emit(RackAction::SetServices(services.clone()));
                 self.deck.emit(DeckAction::SetServices(services.clone()));
                 self.services = Some(services);
-            }
-            AppCmd::Queue(uris) => {
-                if let Some(services) = &self.services {
-                    services.playback.play_queue(uris, 0);
+                if std::env::var("GATEFOLD_OPEN").is_ok()
+                    && let Some(first) = metadata::cached_playlists().into_iter().next()
+                {
+                    _sender.input(AppAction::OpenPlaylist(Box::new(first)));
                 }
             }
             AppCmd::Failed(error) => tracing::error!("{error}"),

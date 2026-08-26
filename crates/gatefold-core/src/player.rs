@@ -279,6 +279,10 @@ impl Playback {
         self.mixer.volume()
     }
 
+    pub fn is_playing(&self) -> bool {
+        self.playing.load(Ordering::Relaxed)
+    }
+
     pub fn set_volume(&self, volume: u16) {
         self.mixer.set_volume(volume);
         self.emit(Event::Volume { volume });

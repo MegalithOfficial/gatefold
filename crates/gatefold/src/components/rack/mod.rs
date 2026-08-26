@@ -44,7 +44,8 @@ pub enum RackAction {
     ShowCached,
     ShowAvatar(std::path::PathBuf),
     ToggleCollapse,
-    Open(String),
+    Home,
+    Open(Box<PlaylistRef>),
 }
 
 impl std::fmt::Debug for RackAction {
@@ -54,14 +55,16 @@ impl std::fmt::Debug for RackAction {
             RackAction::ShowCached => write!(f, "ShowCached"),
             RackAction::ShowAvatar(_) => write!(f, "ShowAvatar"),
             RackAction::ToggleCollapse => write!(f, "ToggleCollapse"),
-            RackAction::Open(uri) => write!(f, "Open({uri})"),
+            RackAction::Home => write!(f, "Home"),
+            RackAction::Open(playlist) => write!(f, "Open({})", playlist.name),
         }
     }
 }
 
 #[derive(Debug)]
 pub enum RackOutput {
-    OpenPlaylist(String),
+    OpenPlaylist(Box<PlaylistRef>),
+    OpenHome,
 }
 
 #[derive(Debug)]
@@ -140,6 +143,8 @@ impl Component for Rack {
         home.add_css_class("nav");
         home.set_tooltip_text(Some("Home"));
         home.set_margin_top(6);
+        let on_home = sender.input_sender().clone();
+        home.connect_clicked(move |_| on_home.emit(RackAction::Home));
         inner.append(&home);
 
         let head = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -298,8 +303,11 @@ impl Component for Rack {
                 self.avatar.set_visible(false);
             }
             RackAction::ToggleCollapse => self.toggle_collapse(),
-            RackAction::Open(uri) => {
-                let _ = sender.output(RackOutput::OpenPlaylist(uri));
+            RackAction::Home => {
+                let _ = sender.output(RackOutput::OpenHome);
+            }
+            RackAction::Open(playlist) => {
+                let _ = sender.output(RackOutput::OpenPlaylist(playlist));
             }
         }
     }
@@ -435,8 +443,8 @@ impl Rack {
             button.add_css_class("record");
             button.set_tooltip_text(Some(&playlist.name));
             let open = sender.input_sender().clone();
-            let uri = playlist.uri.clone();
-            button.connect_clicked(move |_| open.emit(RackAction::Open(uri.clone())));
+            let entry = playlist.clone();
+            button.connect_clicked(move |_| open.emit(RackAction::Open(Box::new(entry.clone()))));
             self.shelf.append(&button);
         }
     }

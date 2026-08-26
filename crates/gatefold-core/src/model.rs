@@ -14,6 +14,7 @@ pub struct TrackInfo {
     pub uri: String,
     pub name: String,
     pub artists: Vec<ArtistRef>,
+    pub cover_id: Option<String>,
     pub number: u32,
     pub disc: u32,
     pub duration_ms: u32,
@@ -135,10 +136,17 @@ impl ArtistInfo {
 
 impl TrackInfo {
     pub(crate) fn from_track(track: &Track) -> Option<Self> {
+        let covers = if track.album.covers.is_empty() {
+            &track.album.cover_group
+        } else {
+            &track.album.covers
+        };
+
         Some(Self {
             uri: track.id.to_uri().ok()?,
             name: track.name.clone(),
             artists: artist_refs(&track.artists_with_role),
+            cover_id: largest_image(covers),
             number: track.number.max(0) as u32,
             disc: track.disc_number.max(0) as u32,
             duration_ms: track.duration.max(0) as u32,
@@ -193,6 +201,7 @@ pub struct PlaylistInfo {
     pub name: String,
     pub description: String,
     pub owner: String,
+    pub updated_at_ms: i64,
     pub tracks: Vec<TrackInfo>,
 }
 

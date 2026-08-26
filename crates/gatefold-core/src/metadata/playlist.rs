@@ -99,20 +99,32 @@ pub async fn playlist(session: &Session, uri: &str) -> Result<PlaylistInfo> {
     let playlist = net::fetch(|| Playlist::get(session, &id)).await?;
 
     let uris: Vec<SpotifyUri> = playlist.tracks().cloned().collect();
-    let tracks = super::tracks(session, uris).await;
-
-    let owner = match &playlist.id {
+    let owner_username = match &playlist.id {
         SpotifyUri::Playlist {
             user: Some(user), ..
         } => user.clone(),
         _ => String::new(),
     };
+    let owner = async {
+        if owner_username.is_empty() {
+            return owner_username;
+        }
+        match crate::session::user_profile(session, &owner_username).await {
+            Ok(profile) => profile.name,
+            Err(error) => {
+                tracing::warn!("playlist owner profile: {error}");
+                owner_username
+            }
+        }
+    };
+    let (tracks, owner) = tokio::join!(super::tracks(session, uris), owner);
 
     Ok(PlaylistInfo {
         uri: playlist.id.to_uri().context("playlist has no usable uri")?,
         name: playlist.attributes.name.clone(),
-        description: playlist.attributes.description.clone(),
+        description: description_text(&playlist.attributes.description),
         owner,
+        updated_at_ms: playlist.timestamp.as_timestamp_ms(),
         tracks,
     })
 }
@@ -125,4 +137,81 @@ pub async fn playlist_uris(session: &Session, uri: &str) -> Result<Vec<String>> 
         .tracks()
         .filter_map(|track| track.to_uri().ok())
         .collect())
+}
+
+fn description_text(html: &str) -> String {
+    let mut text = String::with_capacity(html.len());
+    let mut tag = String::new();
+    let mut in_tag = false;
+
+    for character in html.chars() {
+        match character {
+            '<' if !in_tag => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                if matches!(
+                    tag.trim().to_ascii_lowercase().as_str(),
+                    "br" | "br/" | "/p"
+                ) {
+                    text.push(' ');
+                }
+                in_tag = false;
+            }
+            _ if in_tag => tag.push(character),
+            _ => text.push(character),
+        }
+    }
+
+    decode_entities(&text)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn decode_entities(text: &str) -> String {
+    let mut decoded = String::with_capacity(text.len());
+    let mut rest = text;
+
+    while let Some(start) = rest.find('&') {
+        decoded.push_str(&rest[..start]);
+        let entity = &rest[start + 1..];
+        let Some(end) = entity.find(';').filter(|end| *end <= 8) else {
+            decoded.push('&');
+            rest = entity;
+            continue;
+        };
+        let name = &entity[..end];
+        if let Some(character) = decode_entity(name) {
+            decoded.push(character);
+        } else {
+            decoded.push('&');
+            decoded.push_str(name);
+            decoded.push(';');
+        }
+        rest = &entity[end + 1..];
+    }
+
+    decoded.push_str(rest);
+    decoded
+}
+
+fn decode_entity(entity: &str) -> Option<char> {
+    match entity {
+        "amp" => Some('&'),
+        "apos" | "#39" => Some('\''),
+        "gt" => Some('>'),
+        "hellip" => Some('…'),
+        "lt" => Some('<'),
+        "nbsp" => Some(' '),
+        "quot" => Some('"'),
+        value if value.starts_with("#x") || value.starts_with("#X") => {
+            u32::from_str_radix(&value[2..], 16)
+                .ok()
+                .and_then(char::from_u32)
+        }
+        value if value.starts_with('#') => value[1..].parse().ok().and_then(char::from_u32),
+        _ => None,
+    }
 }

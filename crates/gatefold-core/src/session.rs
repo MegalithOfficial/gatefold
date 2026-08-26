@@ -28,17 +28,21 @@ fn cache() -> Result<Cache> {
 
 pub async fn profile(session: &Session) -> Result<Profile> {
     let username = session.username();
-    let bytes = net::fetch(|| session.spclient().get_user_profile(&username, None, None)).await?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
-
-    let profile = Profile {
-        name: json["name"].as_str().unwrap_or(&username).to_owned(),
-        avatar: json["image_url"].as_str().map(str::to_owned),
-    };
+    let profile = user_profile(session, &username).await?;
 
     store(&profile);
 
     Ok(profile)
+}
+
+pub async fn user_profile(session: &Session, username: &str) -> Result<Profile> {
+    let bytes = net::fetch(|| session.spclient().get_user_profile(username, None, None)).await?;
+    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
+
+    Ok(Profile {
+        name: json["name"].as_str().unwrap_or(username).to_owned(),
+        avatar: json["image_url"].as_str().map(str::to_owned),
+    })
 }
 
 pub fn cached_profile() -> Option<Profile> {

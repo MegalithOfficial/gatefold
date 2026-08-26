@@ -24,3 +24,47 @@ scale slider {
     background: @primary;
     border-radius: 999px;
 }
+
+.pill {
+    min-height: 40px;
+    padding: 0 20px 0 16px;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.pill image {
+    margin-right: 8px;
+}
+
+.pill.filled {
+    background: @primary;
+    color: @on_primary;
+}
+
+.pill.filled:hover {
+    background: shade(@primary, 1.08);
+    box-shadow: inset 0 0 0 2px alpha(@on_primary, 0.24);
+}
+
+.pill.filled:active {
+    background: shade(@primary, 0.88);
+    box-shadow: inset 0 0 0 2px alpha(@on_primary, 0.32);
+}
+
+.icon {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: none;
+    color: @on_surface_dim;
+}
+
+.icon:hover {
+    background: alpha(@on_surface, 0.08);
+    color: @on_surface;
+}

@@ -1,0 +1,163 @@
+paned.gatefold {
+    margin: 12px 12px 0 0;
+}
+
+paned.gatefold > separator {
+    min-width: 12px;
+    margin: 0;
+    border: none;
+    box-shadow: none;
+    background: none;
+    background-image: none;
+    -gtk-icon-source: none;
+    opacity: 0;
+}
+
+.sleeve {
+    background: @sleeve;
+    border-radius: 28px;
+}
+
+.sleeve-inner {
+    padding: 28px;
+}
+
+.header-art {
+    border-radius: 12px;
+    box-shadow: 0 8px 24px alpha(black, 0.4);
+}
+
+.page-title {
+    font-size: 22pt;
+    font-weight: 500;
+    letter-spacing: -0.4px;
+}
+
+.page-meta {
+    margin-top: 4px;
+}
+
+.page-owner {
+    color: @primary;
+}
+
+.page-detail {
+    color: @on_surface_dim;
+}
+
+.release-line {
+    margin-top: 24px;
+    font-size: 8.5pt;
+    color: @outline;
+}
+
+.notes {
+    background: @surface_low;
+    border-radius: 28px;
+    padding: 12px;
+}
+
+.track {
+    min-height: 52px;
+    padding: 0 16px;
+    border-radius: 14px;
+    border: none;
+    box-shadow: none;
+    background: none;
+    color: @on_surface;
+    font-weight: 400;
+}
+
+.track:hover {
+    background: @surface_high;
+}
+
+.track-art {
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 6px;
+    background: @primary_dim;
+    color: @on_primary_dim;
+}
+
+.track-leading {
+    min-width: 20px;
+}
+
+.track-play {
+    opacity: 0;
+    color: @on_surface;
+}
+
+.track-equalizer {
+    min-width: 20px;
+    min-height: 14px;
+    opacity: 0;
+}
+
+.track-equalizer-bar {
+    min-width: 3px;
+    border-radius: 999px;
+    background: @on_primary_dim;
+}
+
+.track.playing-active .track-index {
+    opacity: 0;
+}
+
+.track.playing-active .track-equalizer {
+    opacity: 1;
+}
+
+.track:hover .track-index,
+.track:focus-visible .track-index {
+    opacity: 0;
+}
+
+.track:hover .track-play,
+.track:focus-visible .track-play {
+    opacity: 1;
+}
+
+.track:hover .track-equalizer,
+.track:focus-visible .track-equalizer {
+    opacity: 0;
+}
+
+.track-index,
+.track-time {
+    font-family: "Adwaita Mono";
+    font-feature-settings: "tnum";
+    color: @outline;
+}
+
+.track-time {
+    color: @on_surface_dim;
+}
+
+.track-name {
+    color: @on_surface;
+}
+
+.track-artists {
+    font-size: 9.5pt;
+    color: @on_surface_dim;
+}
+
+.track.playing {
+    background: @primary_dim;
+}
+
+.track.playing .track-name,
+.track.playing .track-index,
+.track.playing .track-time {
+    color: @on_primary_dim;
+}
+
+.track.playing .track-artists {
+    color: alpha(@on_primary_dim, 0.75);
+}
+
+.track.playing .track-play {
+    color: @on_primary_dim;
+}
