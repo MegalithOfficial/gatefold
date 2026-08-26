@@ -55,7 +55,7 @@ pub async fn playlist(session: &Session, uri: &str) -> Result<PlaylistInfo> {
     let playlist = net::fetch(|| Playlist::get(session, &id)).await?;
 
     let uris: Vec<SpotifyUri> = playlist.tracks().cloned().collect();
-    let tracks = crate::metadata::tracks(session, uris).await;
+    let tracks = super::tracks(session, uris).await;
 
     let owner = match &playlist.id {
         SpotifyUri::Playlist {

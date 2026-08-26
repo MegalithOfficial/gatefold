@@ -4,7 +4,6 @@ use anyhow::{Context, Result};
 
 pub mod auth;
 pub mod images;
-pub mod library;
 pub mod model;
 pub mod net;
 pub mod metadata;
