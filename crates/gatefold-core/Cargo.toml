@@ -11,7 +11,7 @@ authors.workspace = true
 librespot = "0.8"
 
 futures = "0.3"
-rand = "0.9"
+rand = "0.10"
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
