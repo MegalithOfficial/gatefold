@@ -55,6 +55,7 @@ pub struct App {
 pub enum AppAction {
     OpenPlaylist(Box<PlaylistRef>),
     OpenHome,
+    ToggleRack,
     Back,
     Forward,
     FocusSearch,
@@ -134,6 +135,7 @@ impl Component for App {
             topbar: Topbar::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
+                    TopbarOutput::ToggleRack => AppAction::ToggleRack,
                     TopbarOutput::Back => AppAction::Back,
                     TopbarOutput::Forward => AppAction::Forward,
                 }),
@@ -161,6 +163,9 @@ impl Component for App {
         pages.add_named(model.playlist.widget(), Some("playlist"));
         let widgets = view_output!();
 
+        let icons = gtk::IconTheme::for_display(&gtk::gdk::Display::default().expect("display"));
+        icons.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
+
         crate::shortcuts::install(&root, sender.input_sender());
 
         sender.oneshot_command(async move {
@@ -179,6 +184,7 @@ impl Component for App {
                 let palette = Palette::from_cover(&path);
                 self.css.load_from_string(&css::stylesheet(&palette));
             }
+            AppAction::ToggleRack => self.rack.emit(RackAction::ToggleCollapse),
             AppAction::FocusSearch => self.topbar.emit(TopbarAction::FocusSearch),
             AppAction::OpenHome => self.navigate(Page::Home),
             AppAction::OpenPlaylist(playlist) => self.navigate(Page::Playlist(*playlist)),

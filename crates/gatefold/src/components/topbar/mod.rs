@@ -18,6 +18,7 @@ pub struct Topbar {
 #[derive(Debug)]
 pub enum TopbarAction {
     History { back: bool, forward: bool },
+    ToggleRack,
     Back,
     Forward,
     FocusSearch,
@@ -25,6 +26,7 @@ pub enum TopbarAction {
 
 #[derive(Debug)]
 pub enum TopbarOutput {
+    ToggleRack,
     Back,
     Forward,
 }
@@ -40,6 +42,15 @@ impl Component for Topbar {
         gtk::Box {
             add_css_class: "topbar",
             set_spacing: 4,
+
+            gtk::Button {
+                set_icon_name: "gatefold-sidebar-symbolic",
+                set_tooltip_text: Some("Toggle sidebar"),
+                add_css_class: "nav-arrow",
+                set_valign: gtk::Align::Center,
+                set_margin_end: 6,
+                connect_clicked => TopbarAction::ToggleRack,
+            },
 
             gtk::Button {
                 set_icon_name: "go-previous-symbolic",
@@ -186,6 +197,9 @@ impl Component for Topbar {
             TopbarAction::History { back, forward } => {
                 self.can_back = back;
                 self.can_forward = forward;
+            }
+            TopbarAction::ToggleRack => {
+                let _ = sender.output(TopbarOutput::ToggleRack);
             }
             TopbarAction::Back => {
                 let _ = sender.output(TopbarOutput::Back);

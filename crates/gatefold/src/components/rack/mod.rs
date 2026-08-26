@@ -26,7 +26,6 @@ pub struct Rack {
     inner: gtk::Box,
     scroll: gtk::Adjustment,
     shelf: gtk::Box,
-    toggle: gtk::Button,
     avatar: gtk::Label,
     portrait: gtk::Picture,
     username: gtk::Label,
@@ -170,22 +169,23 @@ impl Component for Rack {
             .vexpand(true)
             .child(&shelf)
             .build();
+        let wheel = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::VERTICAL);
+        wheel.connect_scroll({
+            let vertical = list.vadjustment();
+            move |controller, _, dy| {
+                if controller.unit() != gtk::gdk::ScrollUnit::Wheel {
+                    return gtk::glib::Propagation::Proceed;
+                }
+                let row = 54.0;
+                let target = ((vertical.value() + dy * 2.0 * row) / row).round() * row;
+                vertical.set_value(
+                    target.clamp(vertical.lower(), vertical.upper() - vertical.page_size()),
+                );
+                gtk::glib::Propagation::Stop
+            }
+        });
+        list.add_controller(wheel);
         inner.append(&list);
-
-        let utility = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        utility.add_css_class("utility");
-        let toggle = icon("sidebar-show-symbolic", "nav");
-        toggle.set_tooltip_text(Some("Collapse"));
-        toggle.set_hexpand(true);
-        toggle.set_halign(gtk::Align::Start);
-        let collapse = sender.input_sender().clone();
-        toggle.connect_clicked(move |_| collapse.emit(RackAction::ToggleCollapse));
-        utility.append(&toggle);
-        let settings = icon("emblem-system-symbolic", "nav");
-        settings.set_tooltip_text(Some("Settings"));
-        wide_static.push(settings.clone().upcast());
-        utility.append(&settings);
-        inner.append(&utility);
 
         let account = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         account.add_css_class("account");
@@ -214,6 +214,11 @@ impl Component for Rack {
         who.append(&label("Spotify Premium", "shelf-kind"));
         wide_static.push(who.clone().upcast());
         account.append(&who);
+        let settings = icon("emblem-system-symbolic", "nudge");
+        settings.set_tooltip_text(Some("Settings"));
+        settings.set_valign(gtk::Align::Center);
+        wide_static.push(settings.clone().upcast());
+        account.append(&settings);
         inner.append(&account);
 
         let model = Rack {
@@ -222,7 +227,6 @@ impl Component for Rack {
             inner,
             scroll: curtain.hadjustment(),
             shelf,
-            toggle,
             avatar: avatar.clone(),
             portrait: portrait.clone(),
             username: username.clone(),
@@ -437,8 +441,6 @@ impl Rack {
         }
         self.collapsed = !self.collapsed;
         let collapse = self.collapsed;
-        self.toggle
-            .set_tooltip_text(Some(if collapse { "Expand" } else { "Collapse" }));
 
         let (from, to) = if collapse {
             (WIDE, NARROW)
