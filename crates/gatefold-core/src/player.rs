@@ -247,6 +247,7 @@ impl Playback {
     }
 
     pub fn next(&self) {
+        self.demote_repeat();
         if !self.step(1) {
             self.player.stop();
         }
@@ -255,8 +256,22 @@ impl Playback {
     pub fn previous(&self) {
         if self.position_ms.load(Ordering::Relaxed) > RESTART_THRESHOLD_MS {
             self.player.seek(0);
-        } else if !self.step(-1) {
-            self.player.seek(0);
+        } else {
+            self.demote_repeat();
+            if !self.step(-1) {
+                self.player.seek(0);
+            }
+        }
+    }
+
+    fn demote_repeat(&self) {
+        let mut repeat = self.repeat.lock().unwrap();
+        if *repeat == Repeat::Track {
+            *repeat = Repeat::Context;
+            drop(repeat);
+            self.emit(Event::RepeatChanged {
+                repeat: Repeat::Context,
+            });
         }
     }
 

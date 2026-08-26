@@ -75,3 +75,18 @@ scale.seek:hover slider {
 .deck .icon.active {
     color: @primary;
 }
+
+.state-dot {
+    min-width: 4px;
+    min-height: 4px;
+    border-radius: 999px;
+    background: @primary;
+    margin-top: 1px;
+}
+
+.repeat-one {
+    font-size: 6.5pt;
+    font-weight: 700;
+    margin-top: -3px;
+    margin-right: -5px;
+}

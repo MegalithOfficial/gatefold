@@ -127,11 +127,33 @@ impl Component for Deck {
                     set_halign: gtk::Align::Center,
 
                     gtk::Button {
-                        set_icon_name: "media-playlist-shuffle-symbolic",
                         #[watch]
                         set_class_active: ("active", model.shuffle),
+                        #[watch]
+                        set_tooltip_text: Some(if model.shuffle {
+                            "Shuffle on"
+                        } else {
+                            "Shuffle off"
+                        }),
                         add_css_class: "icon",
                         connect_clicked => DeckAction::Shuffle,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_halign: gtk::Align::Center,
+                            set_valign: gtk::Align::Center,
+
+                            gtk::Image {
+                                set_icon_name: Some("media-playlist-shuffle-symbolic"),
+                            },
+
+                            gtk::Box {
+                                add_css_class: "state-dot",
+                                set_halign: gtk::Align::Center,
+                                #[watch]
+                                set_visible: model.shuffle,
+                            },
+                        },
                     },
 
                     gtk::Button {
@@ -161,15 +183,43 @@ impl Component for Deck {
 
                     gtk::Button {
                         #[watch]
-                        set_icon_name: if model.repeat == Repeat::Track {
-                            "media-playlist-repeat-song-symbolic"
-                        } else {
-                            "media-playlist-repeat-symbolic"
-                        },
-                        #[watch]
                         set_class_active: ("active", model.repeat != Repeat::Off),
+                        #[watch]
+                        set_tooltip_text: Some(match model.repeat {
+                            Repeat::Off => "Repeat off",
+                            Repeat::Context => "Repeat all",
+                            Repeat::Track => "Repeat one",
+                        }),
                         add_css_class: "icon",
                         connect_clicked => DeckAction::Repeat,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_halign: gtk::Align::Center,
+                            set_valign: gtk::Align::Center,
+
+                            gtk::Overlay {
+                                gtk::Image {
+                                    set_icon_name: Some("media-playlist-repeat-symbolic"),
+                                },
+
+                                add_overlay = &gtk::Label {
+                                    set_label: "1",
+                                    add_css_class: "repeat-one",
+                                    set_halign: gtk::Align::End,
+                                    set_valign: gtk::Align::Start,
+                                    #[watch]
+                                    set_visible: model.repeat == Repeat::Track,
+                                },
+                            },
+
+                            gtk::Box {
+                                add_css_class: "state-dot",
+                                set_halign: gtk::Align::Center,
+                                #[watch]
+                                set_visible: model.repeat != Repeat::Off,
+                            },
+                        },
                     },
                 },
 
