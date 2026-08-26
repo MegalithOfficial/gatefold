@@ -3,6 +3,7 @@ mod components;
 mod css;
 mod pages;
 mod palette;
+mod shortcuts;
 mod square;
 
 use anyhow::Result;

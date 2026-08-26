@@ -17,6 +17,7 @@ use crate::{
     components::{
         deck::{Deck, DeckAction, DeckOutput},
         rack::{Rack, RackAction, RackOutput},
+        topbar::{Topbar, TopbarAction, TopbarOutput},
     },
     css,
     pages::{
@@ -31,10 +32,19 @@ pub struct Services {
     pub playback: Arc<Playback>,
 }
 
+#[derive(Clone)]
+enum Page {
+    Home,
+    Playlist(PlaylistRef),
+}
+
 pub struct App {
     css: gtk::CssProvider,
     services: Option<Arc<Services>>,
+    history: Vec<Page>,
+    position: usize,
     pages: gtk::Stack,
+    topbar: Controller<Topbar>,
     rack: Controller<Rack>,
     home: Controller<Home>,
     playlist: Controller<PlaylistPage>,
@@ -45,6 +55,9 @@ pub struct App {
 pub enum AppAction {
     OpenPlaylist(Box<PlaylistRef>),
     OpenHome,
+    Back,
+    Forward,
+    FocusSearch,
     Cover(std::path::PathBuf),
 }
 
@@ -74,22 +87,26 @@ impl Component for App {
             set_title: Some("gatefold"),
             set_default_size: (1440, 920),
 
-            gtk::Box {
-                set_orientation: gtk::Orientation::Horizontal,
-
-                model.rack.widget() {},
-
+            gtk::WindowHandle {
                 gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_hexpand: true,
+                    set_orientation: gtk::Orientation::Horizontal,
 
-                    #[local_ref]
-                    pages -> gtk::Stack {
-                        set_vexpand: true,
-                        set_transition_type: gtk::StackTransitionType::Crossfade,
+                    model.rack.widget() {},
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_hexpand: true,
+
+                        model.topbar.widget() {},
+
+                        #[local_ref]
+                        pages -> gtk::Stack {
+                            set_vexpand: true,
+                            set_transition_type: gtk::StackTransitionType::Crossfade,
+                        },
+
+                        model.deck.widget() {},
                     },
-
-                    model.deck.widget() {},
                 },
             },
         }
@@ -111,7 +128,15 @@ impl Component for App {
         let model = App {
             css,
             services: None,
+            history: vec![Page::Home],
+            position: 0,
             pages: gtk::Stack::new(),
+            topbar: Topbar::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| match output {
+                    TopbarOutput::Back => AppAction::Back,
+                    TopbarOutput::Forward => AppAction::Forward,
+                }),
             rack: Rack::builder().launch(()).forward(
                 sender.input_sender(),
                 |output| match output {
@@ -136,6 +161,8 @@ impl Component for App {
         pages.add_named(model.playlist.widget(), Some("playlist"));
         let widgets = view_output!();
 
+        crate::shortcuts::install(&root, sender.input_sender());
+
         sender.oneshot_command(async move {
             match start().await {
                 Ok(services) => AppCmd::Ready(services),
@@ -152,14 +179,20 @@ impl Component for App {
                 let palette = Palette::from_cover(&path);
                 self.css.load_from_string(&css::stylesheet(&palette));
             }
-            AppAction::OpenHome => self.pages.set_visible_child_name("home"),
-            AppAction::OpenPlaylist(playlist) => {
-                let Some(services) = self.services.clone() else {
-                    return;
-                };
-                self.playlist
-                    .emit(PlaylistAction::Show(services, *playlist));
-                self.pages.set_visible_child_name("playlist");
+            AppAction::FocusSearch => self.topbar.emit(TopbarAction::FocusSearch),
+            AppAction::OpenHome => self.navigate(Page::Home),
+            AppAction::OpenPlaylist(playlist) => self.navigate(Page::Playlist(*playlist)),
+            AppAction::Back => {
+                if self.position > 0 {
+                    self.position -= 1;
+                    self.land();
+                }
+            }
+            AppAction::Forward => {
+                if self.position + 1 < self.history.len() {
+                    self.position += 1;
+                    self.land();
+                }
             }
         }
     }
@@ -184,6 +217,32 @@ impl Component for App {
             }
             AppCmd::Failed(error) => tracing::error!("{error}"),
         }
+    }
+}
+
+impl App {
+    fn navigate(&mut self, page: Page) {
+        self.history.truncate(self.position + 1);
+        self.history.push(page);
+        self.position += 1;
+        self.land();
+    }
+
+    fn land(&mut self) {
+        match self.history[self.position].clone() {
+            Page::Home => self.pages.set_visible_child_name("home"),
+            Page::Playlist(playlist) => {
+                let Some(services) = self.services.clone() else {
+                    return;
+                };
+                self.playlist.emit(PlaylistAction::Show(services, playlist));
+                self.pages.set_visible_child_name("playlist");
+            }
+        }
+        self.topbar.emit(TopbarAction::History {
+            back: self.position > 0,
+            forward: self.position + 1 < self.history.len(),
+        });
     }
 }
 

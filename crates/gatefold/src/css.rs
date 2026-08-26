@@ -6,6 +6,7 @@ const SHEETS: &[&str] = &[
     GLOBAL,
     crate::components::deck::CSS,
     crate::components::rack::CSS,
+    crate::components::topbar::CSS,
     crate::pages::home::CSS,
     crate::pages::playlist::CSS,
 ];
