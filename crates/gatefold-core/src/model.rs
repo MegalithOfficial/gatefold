@@ -1,6 +1,7 @@
 use librespot::core::date::Date;
 use librespot::metadata::artist::ArtistsWithRole;
-use librespot::metadata::{Album, Track};
+use librespot::metadata::image::Images;
+use librespot::metadata::{Album, Artist, Track};
 
 #[derive(Debug, Clone)]
 pub struct ArtistRef {
@@ -17,6 +18,27 @@ pub struct TrackInfo {
     pub disc: u32,
     pub duration_ms: u32,
     pub is_explicit: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct AlbumRef {
+    pub uri: String,
+    pub name: String,
+    pub year: i32,
+    pub cover_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArtistInfo {
+    pub uri: String,
+    pub name: String,
+    pub portrait_id: Option<String>,
+    pub biography: Option<String>,
+    pub top_tracks: Vec<TrackInfo>,
+    pub albums: Vec<AlbumRef>,
+    pub singles: Vec<AlbumRef>,
+    pub compilations: Vec<AlbumRef>,
+    pub related: Vec<ArtistRef>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +69,70 @@ pub(crate) fn year(date: &Date) -> i32 {
     date.as_utc().year()
 }
 
+pub(crate) fn largest_image(images: &Images) -> Option<String> {
+    images
+        .iter()
+        .max_by_key(|image| image.width)
+        .and_then(|image| image.id.to_base16().ok())
+}
+
+impl AlbumRef {
+    pub(crate) fn from_album(album: &Album) -> Option<Self> {
+        let covers = if album.covers.is_empty() {
+            &album.cover_group
+        } else {
+            &album.covers
+        };
+
+        Some(Self {
+            uri: album.id.to_uri().ok()?,
+            name: album.name.clone(),
+            year: year(&album.date),
+            cover_id: largest_image(covers),
+        })
+    }
+}
+
+impl ArtistInfo {
+    pub(crate) fn from_artist(
+        artist: &Artist,
+        top_tracks: Vec<TrackInfo>,
+        albums: Vec<AlbumRef>,
+        singles: Vec<AlbumRef>,
+        compilations: Vec<AlbumRef>,
+    ) -> Option<Self> {
+        let portraits = if artist.portraits.is_empty() {
+            &artist.portrait_group
+        } else {
+            &artist.portraits
+        };
+
+        Some(Self {
+            uri: artist.id.to_uri().ok()?,
+            name: artist.name.clone(),
+            portrait_id: largest_image(portraits),
+            biography: artist
+                .biographies
+                .first()
+                .map(|biography| biography.text.clone()),
+            top_tracks,
+            albums,
+            singles,
+            compilations,
+            related: artist
+                .related
+                .iter()
+                .filter_map(|related| {
+                    Some(ArtistRef {
+                        uri: related.id.to_uri().ok()?,
+                        name: related.name.clone(),
+                    })
+                })
+                .collect(),
+        })
+    }
+}
+
 impl TrackInfo {
     pub(crate) fn from_track(track: &Track) -> Option<Self> {
         Some(Self {
@@ -63,12 +149,12 @@ impl TrackInfo {
 
 impl AlbumInfo {
     pub(crate) fn from_album(album: &Album, tracks: Vec<TrackInfo>) -> Option<Self> {
-        let cover_id = album
-            .covers
-            .iter()
-            .chain(album.cover_group.iter())
-            .max_by_key(|image| image.width)
-            .and_then(|image| image.id.to_base16().ok());
+        let covers = if album.covers.is_empty() {
+            &album.cover_group
+        } else {
+            &album.covers
+        };
+        let cover_id = largest_image(covers);
 
         Some(Self {
             uri: album.id.to_uri().ok()?,

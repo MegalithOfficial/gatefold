@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use librespot::core::{Session, SpotifyUri};
-use librespot::metadata::{Album, Metadata, Track};
+use librespot::metadata::{Album, Artist, Metadata, Track};
 
-use crate::model::{AlbumInfo, TrackInfo};
+use crate::model::{AlbumInfo, AlbumRef, ArtistInfo, TrackInfo};
 use crate::net;
 
 const CONCURRENCY: usize = 16;
@@ -50,6 +50,55 @@ pub(crate) async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Vec<Trac
                 Ok(track) => TrackInfo::from_track(&track),
                 Err(error) => {
                     tracing::warn!("skipping track: {error}");
+                    None
+                }
+            }
+        })
+        .collect()
+        .await
+}
+
+pub async fn artist(session: &Session, uri: &str) -> Result<ArtistInfo> {
+    let uri = SpotifyUri::from_uri(uri)?;
+    let artist = net::fetch(|| Artist::get(session, &uri)).await?;
+
+    let country = session.country();
+    let top: Vec<SpotifyUri> = artist
+        .top_tracks
+        .iter()
+        .find(|top| top.country == country)
+        .or_else(|| artist.top_tracks.first())
+        .map(|top| top.tracks.iter().take(10).cloned().collect())
+        .unwrap_or_default();
+    let top_tracks = tracks(session, top).await;
+
+    let albums = album_refs(session, group_heads(&artist.albums)).await;
+    let singles = album_refs(session, group_heads(&artist.singles)).await;
+    let compilations = album_refs(session, group_heads(&artist.compilations)).await;
+
+    ArtistInfo::from_artist(&artist, top_tracks, albums, singles, compilations)
+        .context("artist has no usable uri")
+}
+
+fn group_heads(groups: &librespot::metadata::artist::AlbumGroups) -> Vec<SpotifyUri> {
+    groups
+        .iter()
+        .filter_map(|group| group.first().cloned())
+        .collect()
+}
+
+async fn album_refs(session: &Session, uris: Vec<SpotifyUri>) -> Vec<AlbumRef> {
+    futures::stream::iter(uris)
+        .map(|album_uri| {
+            let session = session.clone();
+            async move { net::fetch(|| Album::get(&session, &album_uri)).await }
+        })
+        .buffered(CONCURRENCY)
+        .filter_map(|album| async move {
+            match album {
+                Ok(album) => AlbumRef::from_album(&album),
+                Err(error) => {
+                    tracing::warn!("skipping album: {error}");
                     None
                 }
             }
