@@ -24,7 +24,13 @@ pub async fn connect() -> Result<Session> {
 
 pub fn clear_authentication() -> Result<()> {
     let dir = crate::cache_dir()?;
-    for name in ["credentials.json", "web-auth.json", "web-auth.part"] {
+    for name in [
+        "credentials.json",
+        "session-auth.json",
+        "session-auth.part",
+        "web-auth.json",
+        "web-auth.part",
+    ] {
         match std::fs::remove_file(dir.join(name)) {
             Ok(()) => {}
             Err(error) if error.kind() == ErrorKind::NotFound => {}
