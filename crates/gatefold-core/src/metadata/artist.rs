@@ -4,7 +4,10 @@ use librespot::{
     metadata::{Artist, Metadata, artist::AlbumGroups},
 };
 
-use crate::{model::ArtistInfo, net};
+use crate::{
+    model::{AlbumRef, ArtistInfo},
+    net,
+};
 
 pub async fn artist(session: &Session, uri: &str) -> Result<ArtistInfo> {
     let uri = SpotifyUri::from_uri(uri)?;
@@ -26,6 +29,16 @@ pub async fn artist(session: &Session, uri: &str) -> Result<ArtistInfo> {
 
     ArtistInfo::from_artist(&artist, top_tracks, albums, singles, compilations)
         .context("artist has no usable uri")
+}
+
+pub async fn artist_albums(session: &Session, uri: &str) -> Result<Vec<AlbumRef>> {
+    let uri = SpotifyUri::from_uri(uri)?;
+    let artist = net::fetch(|| Artist::get(session, &uri)).await?;
+
+    let mut uris = group_heads(&artist.albums);
+    uris.extend(group_heads(&artist.singles));
+
+    Ok(super::album_refs(session, uris).await)
 }
 
 fn group_heads(groups: &AlbumGroups) -> Vec<SpotifyUri> {
