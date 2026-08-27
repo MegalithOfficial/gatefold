@@ -204,3 +204,11 @@ paned.gatefold > separator {
     padding: 0 16px;
     border-radius: 14px;
 }
+
+.more-title {
+    font-size: 11pt;
+    font-weight: 600;
+    margin-top: 24px;
+    margin-bottom: 8px;
+    margin-left: 16px;
+}

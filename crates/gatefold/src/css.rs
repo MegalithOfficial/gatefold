@@ -9,6 +9,7 @@ const SHEETS: &[&str] = &[
     crate::components::topbar::CSS,
     crate::pages::home::CSS,
     crate::pages::playlist::CSS,
+    crate::pages::search::CSS,
 ];
 
 pub fn stylesheet(palette: &Palette) -> String {

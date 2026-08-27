@@ -2,7 +2,7 @@ use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc};
 
 use gatefold_core::{
     images, metadata,
-    model::{PlaylistInfo, PlaylistRef},
+    model::{AlbumInfo, AlbumRef, PlaylistInfo, PlaylistRef},
     player, session,
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw::prelude::*, gtk};
@@ -18,6 +18,7 @@ pub struct PlaylistPage {
     listening: bool,
     requests: tokio::sync::watch::Sender<u64>,
     uri: String,
+    album: bool,
     playing: String,
     active_queue: bool,
     is_playing: bool,
@@ -25,6 +26,7 @@ pub struct PlaylistPage {
     cover_ids: Vec<Option<String>>,
     rows: Vec<(String, gtk::Widget, gtk::Image)>,
     thumbs: Vec<(String, gtk::Image)>,
+    more_thumbs: Vec<(String, gtk::Picture)>,
     play: gtk::Button,
     play_icon: gtk::Image,
     play_label: gtk::Label,
@@ -47,6 +49,7 @@ pub enum PlaylistAction {
 #[derive(Debug)]
 pub enum PlaylistOutput {
     Cover(std::path::PathBuf),
+    Open(Box<PlaylistRef>),
 }
 
 impl std::fmt::Debug for PlaylistAction {
@@ -63,6 +66,9 @@ impl std::fmt::Debug for PlaylistAction {
 #[derive(Debug)]
 pub enum PlaylistCmd {
     Loaded(u64, Box<PlaylistInfo>),
+    Album(u64, Box<AlbumInfo>),
+    More(u64, Vec<AlbumRef>),
+    MoreCover(u64, String, std::path::PathBuf),
     Owner(u64, String),
     Cover(u64, std::path::PathBuf),
     TrackCover(u64, String, std::path::PathBuf),
@@ -312,6 +318,7 @@ impl Component for PlaylistPage {
             listening: false,
             requests,
             uri: String::new(),
+            album: false,
             playing: String::new(),
             active_queue: false,
             is_playing: false,
@@ -319,6 +326,7 @@ impl Component for PlaylistPage {
             cover_ids: Vec::new(),
             rows: Vec::new(),
             thumbs: Vec::new(),
+            more_thumbs: Vec::new(),
             play,
             play_icon,
             play_label,
@@ -350,176 +358,8 @@ impl Component for PlaylistPage {
         _root: &Self::Root,
     ) {
         match message {
-            PlaylistCmd::Loaded(request, playlist) => {
-                if request != *self.requests.borrow() {
-                    return;
-                }
-                self.blurb.set_text(&playlist.description);
-                self.blurb.set_visible(!playlist.description.is_empty());
-                let duration_ms: u64 = playlist
-                    .tracks
-                    .iter()
-                    .map(|track| u64::from(track.duration_ms))
-                    .sum();
-                self.detail.set_text(&format!(
-                    " · {} songs · {} min",
-                    playlist.tracks.len(),
-                    duration_ms / 60_000
-                ));
-                self.release.set_text(
-                    &format_updated(playlist.updated_at_ms)
-                        .unwrap_or_else(|| format!("Playlist by {}", self.owner.text())),
-                );
-                self.uris = playlist
-                    .tracks
-                    .iter()
-                    .map(|track| track.uri.clone())
-                    .collect();
-                self.cover_ids = playlist
-                    .tracks
-                    .iter()
-                    .map(|track| track.cover_id.clone())
-                    .collect();
-                self.sync_playback();
-
-                self.rows.clear();
-                self.thumbs.clear();
-                while let Some(child) = self.shelf.first_child() {
-                    self.shelf.remove(&child);
-                }
-                let primary_artist = playlist
-                    .tracks
-                    .first()
-                    .and_then(|track| track.artists.first())
-                    .map(|artist| artist.name.as_str());
-                let mixed_artists = playlist.tracks.iter().any(|track| {
-                    track.artists.first().map(|artist| artist.name.as_str()) != primary_artist
-                });
-                let mut requested_covers = HashSet::new();
-                for (index, track) in playlist.tracks.iter().enumerate() {
-                    let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-
-                    let leading = gtk::Overlay::new();
-                    leading.add_css_class("track-leading");
-                    leading.set_size_request(20, -1);
-
-                    let number = gtk::Label::new(Some(&format!("{:>2}", index + 1)));
-                    number.add_css_class("track-index");
-                    number.set_xalign(1.0);
-                    leading.set_child(Some(&number));
-
-                    let track_play = gtk::Image::from_icon_name(
-                        if self.active_queue && self.is_playing && track.uri == self.playing {
-                            "media-playback-pause-symbolic"
-                        } else {
-                            "media-playback-start-symbolic"
-                        },
-                    );
-                    track_play.add_css_class("track-play");
-                    track_play.set_halign(gtk::Align::Center);
-                    track_play.set_valign(gtk::Align::Center);
-                    leading.add_overlay(&track_play);
-
-                    let equalizer = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-                    equalizer.add_css_class("track-equalizer");
-                    equalizer.set_halign(gtk::Align::Center);
-                    equalizer.set_valign(gtk::Align::Center);
-                    for _ in 0..3 {
-                        let bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                        bar.add_css_class("track-equalizer-bar");
-                        bar.set_valign(gtk::Align::End);
-                        equalizer.append(&bar);
-                    }
-                    leading.add_overlay(&equalizer);
-                    row.append(&leading);
-
-                    if mixed_artists {
-                        let tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-                        tile.add_css_class("track-art");
-                        tile.set_size_request(40, 40);
-                        tile.set_valign(gtk::Align::Center);
-                        tile.set_hexpand(false);
-                        tile.set_overflow(gtk::Overflow::Hidden);
-                        let cached = track.cover_id.as_deref().and_then(images::cached);
-                        let image = match &cached {
-                            Some(path) => {
-                                let image = gtk::Image::from_file(path);
-                                image.set_pixel_size(40);
-                                image
-                            }
-                            None => gtk::Image::from_icon_name("emblem-music-symbolic"),
-                        };
-                        image.set_halign(gtk::Align::Center);
-                        image.set_hexpand(true);
-                        tile.append(&image);
-                        row.append(&tile);
-
-                        if let Some(cover_id) = &track.cover_id {
-                            self.thumbs.push((cover_id.clone(), image));
-                            if cached.is_none()
-                                && requested_covers.insert(cover_id.clone())
-                                && let Some(services) = self.services.clone()
-                            {
-                                let mut requests = self.requests.subscribe();
-                                let cover_id = cover_id.clone();
-                                sender.command(move |out, shutdown| {
-                                    shutdown
-                                        .register(async move {
-                                            tokio::select! {
-                                                result = images::fetch(&services.session, &cover_id) => {
-                                                    if let Ok(path) = result {
-                                                        let _ = out.send(PlaylistCmd::TrackCover(
-                                                            request,
-                                                            cover_id,
-                                                            path,
-                                                        ));
-                                                    }
-                                                }
-                                                _ = requests.changed() => {}
-                                            }
-                                        })
-                                        .drop_on_shutdown()
-                                });
-                            }
-                        }
-                    }
-
-                    let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
-                    text.set_valign(gtk::Align::Center);
-                    text.set_hexpand(true);
-                    let name = gtk::Label::new(Some(&track.name));
-                    name.add_css_class("track-name");
-                    name.set_xalign(0.0);
-                    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                    text.append(&name);
-                    let artists: Vec<&str> = track
-                        .artists
-                        .iter()
-                        .map(|artist| artist.name.as_str())
-                        .collect();
-                    let artists = gtk::Label::new(Some(&artists.join(", ")));
-                    artists.add_css_class("track-artists");
-                    artists.set_xalign(0.0);
-                    artists.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                    text.append(&artists);
-                    row.append(&text);
-
-                    let time = gtk::Label::new(Some(&clock(track.duration_ms)));
-                    time.add_css_class("track-time");
-                    row.append(&time);
-
-                    let button = gtk::Button::builder().child(&row).build();
-                    button.add_css_class("track");
-                    if track.uri == self.playing {
-                        button.add_css_class("playing");
-                    }
-                    let on_row = sender.input_sender().clone();
-                    button.connect_clicked(move |_| on_row.emit(PlaylistAction::PlayFrom(index)));
-                    self.rows
-                        .push((track.uri.clone(), button.clone().upcast(), track_play));
-                    self.shelf.append(&button);
-                }
-            }
+            PlaylistCmd::Loaded(request, playlist) => self.loaded(request, &playlist, &sender),
+            PlaylistCmd::Album(request, info) => self.album_loaded(request, *info, &sender),
             PlaylistCmd::Owner(request, name) => {
                 if request == *self.requests.borrow() {
                     self.owner.set_text(&name);
@@ -556,6 +396,21 @@ impl Component for PlaylistPage {
                     let _ = sender.output(PlaylistOutput::Cover(path));
                 }
             }
+            PlaylistCmd::More(request, refs) => {
+                if request == *self.requests.borrow() {
+                    self.render_more(request, refs, &sender);
+                }
+            }
+            PlaylistCmd::MoreCover(request, cover_id, path) => {
+                if request != *self.requests.borrow() {
+                    return;
+                }
+                for (thumb_id, picture) in &self.more_thumbs {
+                    if thumb_id == &cover_id {
+                        picture.set_filename(Some(&path));
+                    }
+                }
+            }
             PlaylistCmd::Playback(event) => self.playback(event),
             PlaylistCmd::Failed(error) => tracing::error!("{error}"),
         }
@@ -574,13 +429,22 @@ impl PlaylistPage {
         let request = (*self.requests.borrow()).wrapping_add(1);
         self.requests.send_replace(request);
         self.uri = playlist.uri.clone();
+        self.album = playlist.uri.starts_with("spotify:album:");
         self.title.set_text(&playlist.name);
-        let owner_name = session::cached_display_name(&services.session, &playlist.owner);
+        let owner_name = if self.album {
+            Some(playlist.owner.clone())
+        } else {
+            session::cached_display_name(&services.session, &playlist.owner)
+        };
         let owner_text = owner_name.clone().unwrap_or_else(|| "…".to_owned());
         self.owner.set_text(&owner_text);
         self.detail
             .set_text(&format!(" · {} songs", playlist.length));
-        self.release.set_text(&format!("Playlist by {owner_text}"));
+        self.release.set_text(&if self.album {
+            format!("Album by {owner_text}")
+        } else {
+            format!("Playlist by {owner_text}")
+        });
         if owner_name.is_none() {
             let session = services.session.clone();
             let username = playlist.owner.clone();
@@ -608,6 +472,7 @@ impl PlaylistPage {
         self.cover_ids.clear();
         self.rows.clear();
         self.thumbs.clear();
+        self.more_thumbs.clear();
         while let Some(child) = self.shelf.first_child() {
             self.shelf.remove(&child);
         }
@@ -672,16 +537,25 @@ impl PlaylistPage {
 
         let session = services.session.clone();
         let uri = playlist.uri.clone();
+        let album = self.album;
         let mut requests = self.requests.subscribe();
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
                     tokio::select! {
-                        result = metadata::playlist(&session, &uri) => {
-                            let message = match result {
-                                Ok(playlist) => PlaylistCmd::Loaded(request, Box::new(playlist)),
-                                Err(error) => PlaylistCmd::Failed(format!("playlist: {error}")),
-                            };
+                        message = async {
+                            if album {
+                                match metadata::album(&session, &uri).await {
+                                    Ok(info) => PlaylistCmd::Album(request, Box::new(info)),
+                                    Err(error) => PlaylistCmd::Failed(format!("album: {error}")),
+                                }
+                            } else {
+                                match metadata::playlist(&session, &uri).await {
+                                    Ok(info) => PlaylistCmd::Loaded(request, Box::new(info)),
+                                    Err(error) => PlaylistCmd::Failed(format!("playlist: {error}")),
+                                }
+                            }
+                        } => {
                             let _ = out.send(message);
                         }
                         _ = requests.changed() => {}
@@ -705,6 +579,343 @@ impl PlaylistPage {
         }
 
         self.services = Some(services);
+    }
+
+    fn loaded(&mut self, request: u64, playlist: &PlaylistInfo, sender: &ComponentSender<Self>) {
+        if request != *self.requests.borrow() {
+            return;
+        }
+        self.blurb.set_text(&playlist.description);
+        self.blurb.set_visible(!playlist.description.is_empty());
+        let duration_ms: u64 = playlist
+            .tracks
+            .iter()
+            .map(|track| u64::from(track.duration_ms))
+            .sum();
+        self.detail.set_text(&format!(
+            " · {} songs · {} min",
+            playlist.tracks.len(),
+            duration_ms / 60_000
+        ));
+        self.release.set_text(
+            &format_updated(playlist.updated_at_ms)
+                .unwrap_or_else(|| format!("Playlist by {}", self.owner.text())),
+        );
+        self.uris = playlist
+            .tracks
+            .iter()
+            .map(|track| track.uri.clone())
+            .collect();
+        self.cover_ids = playlist
+            .tracks
+            .iter()
+            .map(|track| track.cover_id.clone())
+            .collect();
+        self.sync_playback();
+
+        self.rows.clear();
+        self.thumbs.clear();
+        self.more_thumbs.clear();
+        while let Some(child) = self.shelf.first_child() {
+            self.shelf.remove(&child);
+        }
+        let primary_artist = playlist
+            .tracks
+            .first()
+            .and_then(|track| track.artists.first())
+            .map(|artist| artist.name.as_str());
+        let mixed_artists = playlist.tracks.iter().any(|track| {
+            track.artists.first().map(|artist| artist.name.as_str()) != primary_artist
+        });
+        let mut requested_covers = HashSet::new();
+        for (index, track) in playlist.tracks.iter().enumerate() {
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+
+            let leading = gtk::Overlay::new();
+            leading.add_css_class("track-leading");
+            leading.set_size_request(20, -1);
+
+            let number = gtk::Label::new(Some(&format!("{:>2}", index + 1)));
+            number.add_css_class("track-index");
+            number.set_xalign(1.0);
+            leading.set_child(Some(&number));
+
+            let track_play = gtk::Image::from_icon_name(
+                if self.active_queue && self.is_playing && track.uri == self.playing {
+                    "media-playback-pause-symbolic"
+                } else {
+                    "media-playback-start-symbolic"
+                },
+            );
+            track_play.add_css_class("track-play");
+            track_play.set_halign(gtk::Align::Center);
+            track_play.set_valign(gtk::Align::Center);
+            leading.add_overlay(&track_play);
+
+            let equalizer = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+            equalizer.add_css_class("track-equalizer");
+            equalizer.set_halign(gtk::Align::Center);
+            equalizer.set_valign(gtk::Align::Center);
+            for _ in 0..3 {
+                let bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                bar.add_css_class("track-equalizer-bar");
+                bar.set_valign(gtk::Align::End);
+                equalizer.append(&bar);
+            }
+            leading.add_overlay(&equalizer);
+            row.append(&leading);
+
+            if mixed_artists {
+                let tile = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+                tile.add_css_class("track-art");
+                tile.set_size_request(40, 40);
+                tile.set_valign(gtk::Align::Center);
+                tile.set_hexpand(false);
+                tile.set_overflow(gtk::Overflow::Hidden);
+                let cached = track.cover_id.as_deref().and_then(images::cached);
+                let image = match &cached {
+                    Some(path) => {
+                        let image = gtk::Image::from_file(path);
+                        image.set_pixel_size(40);
+                        image
+                    }
+                    None => gtk::Image::from_icon_name("emblem-music-symbolic"),
+                };
+                image.set_halign(gtk::Align::Center);
+                image.set_hexpand(true);
+                tile.append(&image);
+                row.append(&tile);
+
+                if let Some(cover_id) = &track.cover_id {
+                    self.thumbs.push((cover_id.clone(), image));
+                    if cached.is_none()
+                        && requested_covers.insert(cover_id.clone())
+                        && let Some(services) = self.services.clone()
+                    {
+                        let mut requests = self.requests.subscribe();
+                        let cover_id = cover_id.clone();
+                        sender.command(move |out, shutdown| {
+                            shutdown
+                                .register(async move {
+                                    tokio::select! {
+                                        result = images::fetch(&services.session, &cover_id) => {
+                                            if let Ok(path) = result {
+                                                let _ = out.send(PlaylistCmd::TrackCover(
+                                                    request,
+                                                    cover_id,
+                                                    path,
+                                                ));
+                                            }
+                                        }
+                                        _ = requests.changed() => {}
+                                    }
+                                })
+                                .drop_on_shutdown()
+                        });
+                    }
+                }
+            }
+
+            let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
+            text.set_valign(gtk::Align::Center);
+            text.set_hexpand(true);
+            let name = gtk::Label::new(Some(&track.name));
+            name.add_css_class("track-name");
+            name.set_xalign(0.0);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            text.append(&name);
+            let artists: Vec<&str> = track
+                .artists
+                .iter()
+                .map(|artist| artist.name.as_str())
+                .collect();
+            let artists = gtk::Label::new(Some(&artists.join(", ")));
+            artists.add_css_class("track-artists");
+            artists.set_xalign(0.0);
+            artists.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            text.append(&artists);
+            row.append(&text);
+
+            let time = gtk::Label::new(Some(&clock(track.duration_ms)));
+            time.add_css_class("track-time");
+            row.append(&time);
+
+            let button = gtk::Button::builder().child(&row).build();
+            button.add_css_class("track");
+            if track.uri == self.playing {
+                button.add_css_class("playing");
+            }
+            let on_row = sender.input_sender().clone();
+            button.connect_clicked(move |_| on_row.emit(PlaylistAction::PlayFrom(index)));
+            self.rows
+                .push((track.uri.clone(), button.clone().upcast(), track_play));
+            self.shelf.append(&button);
+        }
+    }
+
+    fn album_loaded(&mut self, request: u64, info: AlbumInfo, sender: &ComponentSender<Self>) {
+        if request != *self.requests.borrow() {
+            return;
+        }
+        let owner = info
+            .artists
+            .iter()
+            .map(|artist| artist.name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.owner.set_text(&owner);
+        let artist_uri = info.artists.first().map(|artist| artist.uri.clone());
+        let year = info.year;
+        let label = info.label.clone();
+        let cover_id = info.cover_id.clone();
+        let playlist = PlaylistInfo {
+            uri: info.uri,
+            name: info.name,
+            description: String::new(),
+            owner: owner.clone(),
+            updated_at_ms: 0,
+            tracks: info.tracks,
+        };
+        self.loaded(request, &playlist, sender);
+        let mut release = format!("Album by {owner} · {year}");
+        if !label.is_empty() {
+            release.push_str(&format!(" · {label}"));
+        }
+        self.release.set_text(&release);
+        if let Some(artist_uri) = artist_uri
+            && let Some(services) = self.services.clone()
+        {
+            let mut requests = self.requests.subscribe();
+            sender.command(move |out, shutdown| {
+                shutdown
+                    .register(async move {
+                        tokio::select! {
+                            result = metadata::artist_albums(&services.session, &artist_uri) => {
+                                if let Ok(refs) = result {
+                                    let _ = out.send(PlaylistCmd::More(request, refs));
+                                }
+                            }
+                            _ = requests.changed() => {}
+                        }
+                    })
+                    .drop_on_shutdown()
+            });
+        }
+        if self.cover.paintable().is_none()
+            && let Some(cover_id) = cover_id
+        {
+            if let Some(path) = images::cached(&cover_id) {
+                self.cover.set_filename(Some(&path));
+                let _ = sender.output(PlaylistOutput::Cover(path));
+            } else if let Some(services) = self.services.clone() {
+                let mut requests = self.requests.subscribe();
+                sender.command(move |out, shutdown| {
+                    shutdown
+                        .register(async move {
+                            tokio::select! {
+                                result = images::fetch(&services.session, &cover_id) => {
+                                    if let Ok(path) = result {
+                                        let _ = out.send(PlaylistCmd::Cover(request, path));
+                                    }
+                                }
+                                _ = requests.changed() => {}
+                            }
+                        })
+                        .drop_on_shutdown()
+                });
+            }
+        }
+    }
+
+    fn render_more(&mut self, request: u64, refs: Vec<AlbumRef>, sender: &ComponentSender<Self>) {
+        let mut seen = HashSet::new();
+        let refs: Vec<AlbumRef> = refs
+            .into_iter()
+            .filter(|album| album.uri != self.uri && seen.insert(album.uri.clone()))
+            .take(10)
+            .collect();
+        if refs.is_empty() {
+            return;
+        }
+
+        let owner = self.owner.text();
+        let title = gtk::Label::new(Some(&format!("More by {owner}")));
+        title.add_css_class("more-title");
+        title.set_xalign(0.0);
+        self.shelf.append(&title);
+
+        let shelf = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        for album in &refs {
+            let art = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            art.add_css_class("card-art");
+            art.set_size_request(104, 104);
+            art.set_hexpand(false);
+            art.set_overflow(gtk::Overflow::Hidden);
+            let display = gtk::Picture::new();
+            display.set_content_fit(gtk::ContentFit::Cover);
+            let frame = gtk::Overlay::new();
+            let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            spacer.set_size_request(104, 104);
+            frame.set_child(Some(&spacer));
+            frame.add_overlay(&display);
+            art.append(&frame);
+            if let Some(cover_id) = album.cover_id.clone() {
+                if let Some(path) = images::cached(&cover_id) {
+                    display.set_filename(Some(&path));
+                } else {
+                    self.more_thumbs.push((cover_id.clone(), display));
+                    if let Some(services) = self.services.clone() {
+                        let mut requests = self.requests.subscribe();
+                        sender.command(move |out, shutdown| {
+                            shutdown
+                                .register(async move {
+                                    tokio::select! {
+                                        result = images::fetch(&services.session, &cover_id) => {
+                                            if let Ok(path) = result {
+                                                let _ = out.send(PlaylistCmd::MoreCover(
+                                                    request, cover_id, path,
+                                                ));
+                                            }
+                                        }
+                                        _ = requests.changed() => {}
+                                    }
+                                })
+                                .drop_on_shutdown()
+                        });
+                    }
+                }
+            }
+
+            let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            body.append(&art);
+            let name = gtk::Label::new(Some(&album.name));
+            name.add_css_class("card-name");
+            name.set_xalign(0.0);
+            name.set_max_width_chars(12);
+            name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            body.append(&name);
+            let year = gtk::Label::new(Some(&album.year.to_string()));
+            year.add_css_class("card-sub");
+            year.set_xalign(0.0);
+            body.append(&year);
+
+            let card = gtk::Button::builder().child(&body).build();
+            card.add_css_class("card");
+            let open = sender.output_sender().clone();
+            let entry = PlaylistRef {
+                uri: album.uri.clone(),
+                name: album.name.clone(),
+                owner: owner.to_string(),
+                length: 0,
+                picture: album.cover_id.clone(),
+            };
+            card.connect_clicked(move |_| {
+                open.emit(PlaylistOutput::Open(Box::new(entry.clone())));
+            });
+            shelf.append(&card);
+        }
+
+        self.shelf.append(&shelf_scroller(&shelf));
     }
 
     fn primary(&mut self, sender: &ComponentSender<Self>) {
@@ -827,17 +1038,48 @@ impl PlaylistPage {
         }));
         self.play_label
             .set_text(if playing { "Pause" } else { "Play" });
-        self.play.set_tooltip_text(Some(if playing {
-            "Pause playlist"
-        } else {
-            "Play playlist"
-        }));
+        self.play
+            .set_tooltip_text(Some(match (playing, self.album) {
+                (true, true) => "Pause album",
+                (true, false) => "Pause playlist",
+                (false, true) => "Play album",
+                (false, false) => "Play playlist",
+            }));
         if playing {
             self.play.add_css_class("playing");
         } else {
             self.play.remove_css_class("playing");
         }
     }
+}
+
+fn shelf_scroller(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::External)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .propagate_natural_height(true)
+        .child(child)
+        .build();
+    let wheel = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    wheel.connect_scroll({
+        let adjustment = scroller.hadjustment();
+        move |controller, dx, dy| {
+            if adjustment.upper() - adjustment.page_size() <= 1.0 {
+                return gtk::glib::Propagation::Proceed;
+            }
+            let delta = if dx.abs() > dy.abs() { dx } else { dy };
+            let step = if controller.unit() == gtk::gdk::ScrollUnit::Wheel {
+                delta * 120.0
+            } else {
+                delta
+            };
+            adjustment.set_value(adjustment.value() + step);
+            gtk::glib::Propagation::Stop
+        }
+    });
+    scroller.add_controller(wheel);
+
+    scroller
 }
 
 fn same_queue(left: &[String], right: &[String]) -> bool {

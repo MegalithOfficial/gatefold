@@ -23,6 +23,7 @@ use crate::{
     pages::{
         home::Home,
         playlist::{PlaylistAction, PlaylistOutput, PlaylistPage},
+        search::{SearchAction, SearchOutput, SearchPage},
     },
     palette::Palette,
 };
@@ -36,6 +37,7 @@ pub struct Services {
 enum Page {
     Home,
     Playlist(PlaylistRef),
+    Search(String),
 }
 
 pub struct App {
@@ -48,6 +50,7 @@ pub struct App {
     rack: Controller<Rack>,
     home: Controller<Home>,
     playlist: Controller<PlaylistPage>,
+    search: Controller<SearchPage>,
     deck: Controller<Deck>,
 }
 
@@ -55,6 +58,7 @@ pub struct App {
 pub enum AppAction {
     OpenPlaylist(Box<PlaylistRef>),
     OpenHome,
+    Search(String),
     ToggleRack,
     Back,
     Forward,
@@ -139,6 +143,8 @@ impl Component for App {
                     TopbarOutput::ToggleRack => AppAction::ToggleRack,
                     TopbarOutput::Back => AppAction::Back,
                     TopbarOutput::Forward => AppAction::Forward,
+                    TopbarOutput::Search(query) => AppAction::Search(query),
+                    TopbarOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
                 }),
             rack: Rack::builder().launch(()).forward(
                 sender.input_sender(),
@@ -150,9 +156,14 @@ impl Component for App {
             home: Home::builder().launch(()).detach(),
             playlist: PlaylistPage::builder()
                 .launch(())
-                .forward(sender.input_sender(), |PlaylistOutput::Cover(path)| {
-                    AppAction::Cover(path)
+                .forward(sender.input_sender(), |output| match output {
+                    PlaylistOutput::Cover(path) => AppAction::Cover(path),
+                    PlaylistOutput::Open(playlist) => AppAction::OpenPlaylist(playlist),
                 }),
+            search: SearchPage::builder().launch(()).forward(
+                sender.input_sender(),
+                |SearchOutput::OpenPlaylist(playlist)| AppAction::OpenPlaylist(playlist),
+            ),
             deck: Deck::builder()
                 .launch(())
                 .forward(sender.input_sender(), |DeckOutput::Cover(path)| {
@@ -162,6 +173,7 @@ impl Component for App {
         let pages = &model.pages;
         pages.add_named(model.home.widget(), Some("home"));
         pages.add_named(model.playlist.widget(), Some("playlist"));
+        pages.add_named(model.search.widget(), Some("search"));
 
         let icons = gtk::IconTheme::for_display(&gtk::gdk::Display::default().expect("display"));
         icons.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
@@ -189,6 +201,14 @@ impl Component for App {
             AppAction::FocusSearch => self.topbar.emit(TopbarAction::FocusSearch),
             AppAction::OpenHome => self.navigate(Page::Home),
             AppAction::OpenPlaylist(playlist) => self.navigate(Page::Playlist(*playlist)),
+            AppAction::Search(query) => {
+                if let Page::Search(current) = &mut self.history[self.position] {
+                    *current = query;
+                    self.land();
+                } else {
+                    self.navigate(Page::Search(query));
+                }
+            }
             AppAction::Back => {
                 if self.position > 0 {
                     self.position -= 1;
@@ -214,7 +234,10 @@ impl Component for App {
         match message {
             AppCmd::Ready(services) => {
                 self.rack.emit(RackAction::SetServices(services.clone()));
+                self.topbar
+                    .emit(TopbarAction::SetServices(services.clone()));
                 self.deck.emit(DeckAction::SetServices(services.clone()));
+                self.search.emit(SearchAction::Show(services.clone()));
                 self.services = Some(services);
                 if std::env::var("GATEFOLD_OPEN").is_ok()
                     && let Some(first) = metadata::cached_playlists().into_iter().next()
@@ -244,6 +267,10 @@ impl App {
                 };
                 self.playlist.emit(PlaylistAction::Show(services, playlist));
                 self.pages.set_visible_child_name("playlist");
+            }
+            Page::Search(query) => {
+                self.search.emit(SearchAction::Query(query));
+                self.pages.set_visible_child_name("search");
             }
         }
         self.topbar.emit(TopbarAction::History {

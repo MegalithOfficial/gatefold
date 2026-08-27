@@ -47,3 +47,48 @@ entry.search placeholder {
     color: @on_surface_dim;
 }
 
+
+popover.quick-menu {
+    background: none;
+}
+
+popover.quick-menu > contents {
+    background: @surface_high;
+    border-radius: 16px;
+    padding: 8px;
+    border: none;
+    box-shadow: 0 12px 32px alpha(black, 0.35);
+}
+
+.quick-row {
+    padding: 6px 10px;
+    border-radius: 12px;
+    border: none;
+    box-shadow: none;
+    background: none;
+    color: @on_surface;
+    font-weight: 400;
+}
+
+.quick-row:hover {
+    background: alpha(@on_surface, 0.06);
+}
+
+.quick-art {
+    border-radius: 6px;
+    background: @primary_dim;
+    color: @on_primary_dim;
+}
+
+.quick-art.round {
+    border-radius: 999px;
+}
+
+.quick-name {
+    font-size: 10pt;
+}
+
+.quick-sub {
+    font-size: 8.5pt;
+    color: @on_surface_dim;
+}

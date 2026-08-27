@@ -1,0 +1,80 @@
+.search-page {
+    background: @surface_low;
+    border-radius: 28px;
+    margin: 12px 12px 0 0;
+}
+
+.search-inner {
+    padding: 20px 24px;
+}
+
+.search-heading {
+    font-size: 13pt;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.search-section {
+    font-size: 11pt;
+    font-weight: 600;
+    margin-top: 18px;
+    margin-bottom: 8px;
+}
+
+.search-empty {
+    color: @on_surface_dim;
+    margin-top: 12px;
+}
+
+.card {
+    padding: 10px;
+    border: none;
+    box-shadow: none;
+    border-radius: 14px;
+    background: none;
+    color: @on_surface;
+    font-weight: 400;
+}
+
+.card:hover {
+    background: @surface_high;
+}
+
+.card-art {
+    border-radius: 8px;
+    background: @primary_dim;
+    color: @on_primary_dim;
+}
+
+.card-art.round {
+    border-radius: 999px;
+}
+
+.card-name {
+    font-size: 10pt;
+    margin-top: 8px;
+}
+
+.card-sub {
+    font-size: 8.5pt;
+    color: @on_surface_dim;
+}
+
+.top-card {
+    padding: 16px;
+}
+
+.top-name {
+    font-size: 14pt;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+.type-pill {
+    background: alpha(@on_surface, 0.08);
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 8.5pt;
+    color: @on_surface_dim;
+    margin-top: 8px;
+}
