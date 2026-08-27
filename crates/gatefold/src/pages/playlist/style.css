@@ -103,8 +103,8 @@ paned.gatefold > separator {
 }
 
 @keyframes equalize {
-    from { opacity: 0.28; }
-    to { opacity: 1; }
+    from { min-height: 4px; opacity: 0.55; }
+    to { min-height: 14px; opacity: 1; }
 }
 
 .track.playing-active .track-equalizer-bar {
