@@ -5,8 +5,10 @@ use relm4::{
 
 use crate::app::AppAction;
 
+type Shortcut = (&'static str, fn() -> AppAction);
+
 pub fn install(window: &impl IsA<gtk::Widget>, sender: &Sender<AppAction>) {
-    let table: &[(&str, fn() -> AppAction)] = &[
+    let table: &[Shortcut] = &[
         ("<Control>k", || AppAction::FocusSearch),
         ("<Alt>Left", || AppAction::Back),
         ("<Alt>Right", || AppAction::Forward),

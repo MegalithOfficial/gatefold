@@ -61,6 +61,10 @@ impl Palette {
         }
     }
 
+    pub fn tone(&self, saturation: f64, value: f64) -> (u8, u8, u8) {
+        to_rgb(self.hue, self.saturation * saturation, value)
+    }
+
     pub fn css(&self) -> String {
         let tone = |saturation: f64, value: f64| {
             let (r, g, b) = to_rgb(self.hue, self.saturation * saturation, value);

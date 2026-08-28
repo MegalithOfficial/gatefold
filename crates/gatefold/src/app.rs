@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use gatefold_core::{
     metadata,
-    model::PlaylistRef,
+    model::{ArtistRef, PlaylistRef},
     player::{self, Playback},
     session,
     session::Session,
@@ -21,6 +21,8 @@ use crate::{
     },
     css,
     pages::{
+        artist::{ArtistAction, ArtistOutput, ArtistPage},
+        discography::{DiscographyAction, DiscographyOutput, DiscographyPage, View},
         home::Home,
         playlist::{PlaylistAction, PlaylistOutput, PlaylistPage},
         search::{SearchAction, SearchOutput, SearchPage},
@@ -37,6 +39,8 @@ pub struct Services {
 enum Page {
     Home,
     Playlist(PlaylistRef),
+    Artist(ArtistRef, Option<String>),
+    Discography(ArtistRef, View),
     Search(String),
 }
 
@@ -51,12 +55,16 @@ pub struct App {
     home: Controller<Home>,
     playlist: Controller<PlaylistPage>,
     search: Controller<SearchPage>,
+    artist: Controller<ArtistPage>,
+    discography: Controller<DiscographyPage>,
     deck: Controller<Deck>,
 }
 
 #[derive(Debug)]
 pub enum AppAction {
     OpenPlaylist(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>, Option<String>),
+    OpenDiscography(Box<ArtistRef>, View),
     OpenHome,
     Search(String),
     ToggleRack,
@@ -145,6 +153,9 @@ impl Component for App {
                     TopbarOutput::Forward => AppAction::Forward,
                     TopbarOutput::Search(query) => AppAction::Search(query),
                     TopbarOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
+                    TopbarOutput::OpenArtist(artist, picture) => {
+                        AppAction::OpenArtist(artist, picture)
+                    }
                 }),
             rack: Rack::builder().launch(()).forward(
                 sender.input_sender(),
@@ -160,9 +171,29 @@ impl Component for App {
                     PlaylistOutput::Cover(path) => AppAction::Cover(path),
                     PlaylistOutput::Open(playlist) => AppAction::OpenPlaylist(playlist),
                 }),
-            search: SearchPage::builder().launch(()).forward(
+            search: SearchPage::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| match output {
+                    SearchOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
+                    SearchOutput::OpenArtist(artist, picture) => {
+                        AppAction::OpenArtist(artist, picture)
+                    }
+                }),
+            artist: ArtistPage::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| match output {
+                    ArtistOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
+                    ArtistOutput::OpenArtist(artist, picture) => {
+                        AppAction::OpenArtist(artist, picture)
+                    }
+                    ArtistOutput::OpenDiscography(artist, view) => {
+                        AppAction::OpenDiscography(artist, view)
+                    }
+                    ArtistOutput::Cover(path) => AppAction::Cover(path),
+                }),
+            discography: DiscographyPage::builder().launch(()).forward(
                 sender.input_sender(),
-                |SearchOutput::OpenPlaylist(playlist)| AppAction::OpenPlaylist(playlist),
+                |DiscographyOutput::OpenAlbum(album)| AppAction::OpenPlaylist(album),
             ),
             deck: Deck::builder()
                 .launch(())
@@ -174,6 +205,8 @@ impl Component for App {
         pages.add_named(model.home.widget(), Some("home"));
         pages.add_named(model.playlist.widget(), Some("playlist"));
         pages.add_named(model.search.widget(), Some("search"));
+        pages.add_named(model.artist.widget(), Some("artist"));
+        pages.add_named(model.discography.widget(), Some("discography"));
 
         let icons = gtk::IconTheme::for_display(&gtk::gdk::Display::default().expect("display"));
         icons.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
@@ -201,6 +234,12 @@ impl Component for App {
             AppAction::FocusSearch => self.topbar.emit(TopbarAction::FocusSearch),
             AppAction::OpenHome => self.navigate(Page::Home),
             AppAction::OpenPlaylist(playlist) => self.navigate(Page::Playlist(*playlist)),
+            AppAction::OpenArtist(artist, picture) => {
+                self.navigate(Page::Artist(*artist, picture));
+            }
+            AppAction::OpenDiscography(artist, view) => {
+                self.navigate(Page::Discography(*artist, view));
+            }
             AppAction::Search(query) => {
                 if let Page::Search(current) = &mut self.history[self.position] {
                     *current = query;
@@ -267,6 +306,22 @@ impl App {
                 };
                 self.playlist.emit(PlaylistAction::Show(services, playlist));
                 self.pages.set_visible_child_name("playlist");
+            }
+            Page::Artist(artist, picture) => {
+                let Some(services) = self.services.clone() else {
+                    return;
+                };
+                self.artist
+                    .emit(ArtistAction::Show(services, artist, picture));
+                self.pages.set_visible_child_name("artist");
+            }
+            Page::Discography(artist, view) => {
+                let Some(services) = self.services.clone() else {
+                    return;
+                };
+                self.discography
+                    .emit(DiscographyAction::Show(services, artist, view));
+                self.pages.set_visible_child_name("discography");
             }
             Page::Search(query) => {
                 self.search.emit(SearchAction::Query(query));

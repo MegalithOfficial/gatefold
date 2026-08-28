@@ -1,11 +1,9 @@
 use anyhow::{Context, Result, bail};
-use http::{Method, Request, header};
 use librespot::core::Session;
 use serde::Deserialize;
 use url::Url;
 
 use crate::{
-    auth,
     model::{
         ArtistRef, SearchAlbum, SearchArtist, SearchAudiobook, SearchEpisode, SearchOptions,
         SearchOwner, SearchPage, SearchPlaylist, SearchResults, SearchShow, SearchTrack,
@@ -54,22 +52,7 @@ pub async fn search(
         }
     }
 
-    let access_token = auth::web_access_token().await?;
-    let bytes = net::fetch(|| {
-        let url = url.clone();
-        let access_token = access_token.clone();
-        async move {
-            let request = Request::builder()
-                .method(Method::GET)
-                .uri(url.as_str())
-                .header(header::AUTHORIZATION, format!("Bearer {access_token}"))
-                .header(header::ACCEPT, "application/json")
-                .body(Default::default())?;
-            session.http_client().request_body(request).await
-        }
-    })
-    .await
-    .context("Spotify search request failed")?;
+    let bytes = net::web_api(session, &url).await?;
 
     let response: ApiResults =
         serde_json::from_slice(&bytes).context("Spotify returned malformed search results")?;

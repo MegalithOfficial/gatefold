@@ -19,6 +19,12 @@ pub async fn connect() -> Result<Session> {
     let session = Session::new(SessionConfig::default(), Some(cache));
     session.connect(credentials, true).await?;
 
+    let warm = session.clone();
+    tokio::spawn(async move {
+        let _ = warm.login5().auth_token().await;
+        let _ = warm.spclient().client_token().await;
+    });
+
     Ok(session)
 }
 

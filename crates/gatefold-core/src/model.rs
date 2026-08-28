@@ -19,6 +19,7 @@ pub struct TrackInfo {
     pub disc: u32,
     pub duration_ms: u32,
     pub is_explicit: bool,
+    pub plays: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +28,42 @@ pub struct AlbumRef {
     pub name: String,
     pub year: i32,
     pub cover_id: Option<String>,
+    pub artists: Vec<ArtistRef>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ReleaseGroup {
+    Albums,
+    Singles,
+    Compilations,
+    AppearsOn,
+}
+
+impl ReleaseGroup {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Albums => "album",
+            Self::Singles => "single",
+            Self::Compilations => "compilation",
+            Self::AppearsOn => "appears_on",
+        }
+    }
+
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Albums => "Albums",
+            Self::Singles => "Singles & EPs",
+            Self::Compilations => "Compilations",
+            Self::AppearsOn => "Appears on",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArtistCard {
+    pub uri: String,
+    pub name: String,
+    pub portrait: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,12 +71,16 @@ pub struct ArtistInfo {
     pub uri: String,
     pub name: String,
     pub portrait_id: Option<String>,
+    pub banner: Option<String>,
     pub biography: Option<String>,
+    pub monthly_listeners: Option<u64>,
     pub top_tracks: Vec<TrackInfo>,
     pub albums: Vec<AlbumRef>,
     pub singles: Vec<AlbumRef>,
+    pub singles_total: usize,
     pub compilations: Vec<AlbumRef>,
-    pub related: Vec<ArtistRef>,
+    pub appears_on: Vec<AlbumRef>,
+    pub related: Vec<ArtistCard>,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +131,16 @@ impl AlbumRef {
             name: album.name.clone(),
             year: year(&album.date),
             cover_id: largest_image(covers),
+            artists: album
+                .artists
+                .iter()
+                .filter_map(|artist| {
+                    Some(ArtistRef {
+                        uri: artist.id.to_uri().ok()?,
+                        name: artist.name.clone(),
+                    })
+                })
+                .collect(),
         })
     }
 }
@@ -112,24 +163,19 @@ impl ArtistInfo {
             uri: artist.id.to_uri().ok()?,
             name: artist.name.clone(),
             portrait_id: largest_image(portraits),
+            banner: None,
             biography: artist
                 .biographies
                 .first()
                 .map(|biography| biography.text.clone()),
+            monthly_listeners: None,
             top_tracks,
             albums,
+            singles_total: singles.len(),
             singles,
             compilations,
-            related: artist
-                .related
-                .iter()
-                .filter_map(|related| {
-                    Some(ArtistRef {
-                        uri: related.id.to_uri().ok()?,
-                        name: related.name.clone(),
-                    })
-                })
-                .collect(),
+            appears_on: Vec::new(),
+            related: Vec::new(),
         })
     }
 }
@@ -151,6 +197,7 @@ impl TrackInfo {
             disc: track.disc_number.max(0) as u32,
             duration_ms: track.duration.max(0) as u32,
             is_explicit: track.is_explicit,
+            plays: None,
         })
     }
 }

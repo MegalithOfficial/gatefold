@@ -6,7 +6,7 @@ use std::{
 
 use gatefold_core::{
     images, metadata,
-    model::{PlaylistRef, SearchOptions, SearchResults, SearchType},
+    model::{ArtistRef, PlaylistRef, SearchOptions, SearchResults, SearchType},
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw, adw::prelude::*, gtk};
 
@@ -39,6 +39,7 @@ pub enum TopbarAction {
     Submit(String),
     Play(String),
     OpenPlaylist(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>, Option<String>),
     Dismiss,
 }
 
@@ -55,6 +56,7 @@ impl std::fmt::Debug for TopbarAction {
             TopbarAction::Submit(query) => write!(f, "Submit({query})"),
             TopbarAction::Play(uri) => write!(f, "Play({uri})"),
             TopbarAction::OpenPlaylist(playlist) => write!(f, "OpenPlaylist({})", playlist.name),
+            TopbarAction::OpenArtist(artist, _) => write!(f, "OpenArtist({})", artist.name),
             TopbarAction::Dismiss => write!(f, "Dismiss"),
         }
     }
@@ -67,6 +69,16 @@ pub enum TopbarOutput {
     Forward,
     Search(String),
     OpenPlaylist(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>, Option<String>),
+}
+
+struct QuickRow<'a> {
+    request: u64,
+    picture: Option<&'a str>,
+    round: bool,
+    name: &'a str,
+    sub: &'a str,
+    action: TopbarAction,
 }
 
 #[derive(Debug)]
@@ -326,6 +338,10 @@ impl Component for Topbar {
                 self.quick.popdown();
                 let _ = sender.output(TopbarOutput::OpenPlaylist(playlist));
             }
+            TopbarAction::OpenArtist(artist, picture) => {
+                self.quick.popdown();
+                let _ = sender.output(TopbarOutput::OpenArtist(artist, picture));
+            }
             TopbarAction::Dismiss => self.quick.popdown(),
         }
     }
@@ -397,20 +413,25 @@ impl Topbar {
             self.rows.remove(&child);
         }
 
-        let query = self.search.text().to_string();
         let tracks = results.tracks.map(|page| page.items).unwrap_or_default();
         let albums = results.albums.map(|page| page.items).unwrap_or_default();
         let artists = results.artists.map(|page| page.items).unwrap_or_default();
         let playlists = results.playlists.map(|page| page.items).unwrap_or_default();
 
         for artist in artists.iter().take(2) {
+            let entry = ArtistRef {
+                uri: artist.uri.clone(),
+                name: artist.name.clone(),
+            };
             let row = self.row(
-                request,
-                artist.portrait.as_deref(),
-                true,
-                &artist.name,
-                "Artist",
-                TopbarAction::Submit(query.clone()),
+                QuickRow {
+                    request,
+                    picture: artist.portrait.as_deref(),
+                    round: true,
+                    name: &artist.name,
+                    sub: "Artist",
+                    action: TopbarAction::OpenArtist(Box::new(entry), artist.portrait.clone()),
+                },
                 sender,
             );
             self.rows.append(&row);
@@ -421,13 +442,16 @@ impl Topbar {
                 .first()
                 .map(|artist| artist.name.as_str())
                 .unwrap_or_default();
+            let sub = format!("Song · {artist}");
             let row = self.row(
-                request,
-                track.album.cover.as_deref(),
-                false,
-                &track.name,
-                &format!("Song · {artist}"),
-                TopbarAction::Play(track.uri.clone()),
+                QuickRow {
+                    request,
+                    picture: track.album.cover.as_deref(),
+                    round: false,
+                    name: &track.name,
+                    sub: &sub,
+                    action: TopbarAction::Play(track.uri.clone()),
+                },
                 sender,
             );
             self.rows.append(&row);
@@ -445,13 +469,16 @@ impl Topbar {
                 length: album.total_tracks as usize,
                 picture: album.cover.clone(),
             };
+            let sub = format!("Album · {artist}");
             let row = self.row(
-                request,
-                album.cover.as_deref(),
-                false,
-                &album.name,
-                &format!("Album · {artist}"),
-                TopbarAction::OpenPlaylist(Box::new(entry)),
+                QuickRow {
+                    request,
+                    picture: album.cover.as_deref(),
+                    round: false,
+                    name: &album.name,
+                    sub: &sub,
+                    action: TopbarAction::OpenPlaylist(Box::new(entry)),
+                },
                 sender,
             );
             self.rows.append(&row);
@@ -464,13 +491,16 @@ impl Topbar {
                 length: playlist.total_tracks as usize,
                 picture: playlist.picture.clone(),
             };
+            let sub = format!("Playlist · By {}", playlist.owner.name);
             let row = self.row(
-                request,
-                playlist.picture.as_deref(),
-                false,
-                &playlist.name,
-                &format!("Playlist · By {}", playlist.owner.name),
-                TopbarAction::OpenPlaylist(Box::new(entry)),
+                QuickRow {
+                    request,
+                    picture: playlist.picture.as_deref(),
+                    round: false,
+                    name: &playlist.name,
+                    sub: &sub,
+                    action: TopbarAction::OpenPlaylist(Box::new(entry)),
+                },
                 sender,
             );
             self.rows.append(&row);
@@ -487,16 +517,15 @@ impl Topbar {
         }
     }
 
-    fn row(
-        &mut self,
-        request: u64,
-        picture: Option<&str>,
-        round: bool,
-        name: &str,
-        sub: &str,
-        action: TopbarAction,
-        sender: &ComponentSender<Self>,
-    ) -> gtk::Button {
+    fn row(&mut self, row: QuickRow<'_>, sender: &ComponentSender<Self>) -> gtk::Button {
+        let QuickRow {
+            request,
+            picture,
+            round,
+            name,
+            sub,
+            action,
+        } = row;
         let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
 
         let art = gtk::Box::new(gtk::Orientation::Horizontal, 0);

@@ -1,0 +1,170 @@
+.artist-hero {
+    margin: 12px 12px 0 0;
+    border-radius: 28px;
+    background: @surface_low;
+}
+
+.artist-hero scrolledwindow,
+.artist-hero viewport {
+    background: none;
+}
+
+.shade {
+    background: black;
+}
+
+.hero-head {
+    padding: 0 36px 28px 36px;
+}
+
+.hero-name {
+    font-size: 56pt;
+    font-weight: 700;
+    letter-spacing: -2.5px;
+    color: white;
+}
+
+.hero-detail {
+    font-size: 11pt;
+    color: alpha(white, 0.82);
+}
+
+.icon.on-photo {
+    background: alpha(black, 0.35);
+    color: white;
+}
+
+.icon.on-photo:hover {
+    background: alpha(black, 0.5);
+}
+
+.follow {
+    min-height: 40px;
+    padding: 0 18px;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: alpha(white, 0.16);
+    color: white;
+    font-weight: 600;
+}
+
+.follow:hover {
+    background: alpha(white, 0.26);
+}
+
+.hero-sticky {
+    padding: 10px 20px 10px 12px;
+    background: @surface_low;
+    box-shadow: 0 8px 24px alpha(black, 0.35);
+}
+
+.hero-sticky-name {
+    font-size: 13pt;
+    font-weight: 600;
+}
+
+.pill.small {
+    min-height: 34px;
+    padding: 0 16px 0 12px;
+}
+
+.rise {
+    padding: 20px 12px 28px 12px;
+    border-radius: 28px 28px 0 0;
+    background: @surface_low;
+}
+
+.hero-section {
+    font-size: 11pt;
+    font-weight: 600;
+    margin-top: 28px;
+    margin-bottom: 8px;
+    margin-left: 16px;
+}
+
+.latest-card {
+    padding: 12px;
+    border: none;
+    box-shadow: none;
+    border-radius: 18px;
+    background: @surface_high;
+    color: @on_surface;
+    font-weight: 400;
+}
+
+.latest-card:hover {
+    background: @surface_top;
+}
+
+flowboxchild {
+    padding: 0;
+    background: none;
+}
+
+.latest-eyebrow {
+    font-size: 9pt;
+    font-weight: 600;
+    color: @on_surface_dim;
+}
+
+.latest-name {
+    font-size: 12pt;
+    font-weight: 600;
+}
+
+.link {
+    min-height: 0;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    background: none;
+    color: @primary;
+    font-weight: 500;
+}
+
+.link:hover {
+    background: none;
+    color: alpha(@primary, 0.8);
+}
+
+.hero-section.inline {
+    margin: 0;
+}
+
+.filter {
+    min-height: 26px;
+    padding: 0 12px;
+    border: none;
+    box-shadow: none;
+    border-radius: 8px;
+    background: alpha(@on_surface, 0.07);
+    color: @on_surface_dim;
+    font-size: 9.5pt;
+    font-weight: 500;
+}
+
+.filter:hover {
+    background: alpha(@on_surface, 0.12);
+    color: @on_surface;
+}
+
+.filter.active {
+    background: @primary_dim;
+    color: @on_primary_dim;
+}
+
+.about {
+    margin: 36px 16px 0 16px;
+}
+
+.artist-blurb {
+    font-size: 10.5pt;
+    line-height: 1.5;
+    color: @on_surface_dim;
+}
+
+.credit-line {
+    font-size: 8.5pt;
+    color: @outline;
+}

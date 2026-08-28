@@ -157,6 +157,13 @@ paned.gatefold > separator {
     color: @outline;
 }
 
+.track-plays {
+    font-family: "Adwaita Mono";
+    font-feature-settings: "tnum";
+    font-size: 9.5pt;
+    color: @on_surface_dim;
+}
+
 .track-time {
     color: @on_surface_dim;
 }

@@ -5,6 +5,7 @@ mod pages;
 mod palette;
 mod shortcuts;
 mod square;
+mod text;
 
 use anyhow::Result;
 use relm4::RelmApp;

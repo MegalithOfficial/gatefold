@@ -457,10 +457,10 @@ impl Playback {
                 }
             }
             PlayerEvent::TimeToPreloadNextTrack { .. } => {
-                if let Some(uri) = self.upcoming() {
-                    if let Ok(id) = SpotifyUri::from_uri(&uri) {
-                        self.player.preload(id);
-                    }
+                if let Some(uri) = self.upcoming()
+                    && let Ok(id) = SpotifyUri::from_uri(&uri)
+                {
+                    self.player.preload(id);
                 }
             }
             PlayerEvent::VolumeChanged { volume } => self.emit(Event::Volume { volume }),

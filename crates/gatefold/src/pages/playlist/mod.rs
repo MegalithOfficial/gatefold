@@ -438,8 +438,10 @@ impl PlaylistPage {
         };
         let owner_text = owner_name.clone().unwrap_or_else(|| "…".to_owned());
         self.owner.set_text(&owner_text);
-        self.detail
-            .set_text(&format!(" · {} songs", playlist.length));
+        self.detail.set_text(&format!(
+            " · {}",
+            crate::text::count(playlist.length, "song")
+        ));
         self.release.set_text(&if self.album {
             format!("Album by {owner_text}")
         } else {
@@ -593,8 +595,8 @@ impl PlaylistPage {
             .map(|track| u64::from(track.duration_ms))
             .sum();
         self.detail.set_text(&format!(
-            " · {} songs · {} min",
-            playlist.tracks.len(),
+            " · {} · {} min",
+            crate::text::count(playlist.tracks.len(), "song"),
             duration_ms / 60_000
         ));
         self.release.set_text(
@@ -735,6 +737,14 @@ impl PlaylistPage {
             artists.set_ellipsize(gtk::pango::EllipsizeMode::End);
             text.append(&artists);
             row.append(&text);
+
+            if let Some(plays) = track.plays {
+                let plays = gtk::Label::new(Some(&crate::text::thousands(plays)));
+                plays.add_css_class("track-plays");
+                plays.set_xalign(1.0);
+                plays.set_size_request(120, -1);
+                row.append(&plays);
+            }
 
             let time = gtk::Label::new(Some(&clock(track.duration_ms)));
             time.add_css_class("track-time");

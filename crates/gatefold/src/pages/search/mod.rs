@@ -3,8 +3,8 @@ use std::sync::Arc;
 use gatefold_core::{
     images, metadata,
     model::{
-        PlaylistRef, SearchAlbum, SearchArtist, SearchOptions, SearchPlaylist, SearchResults,
-        SearchTrack, SearchType,
+        ArtistRef, PlaylistRef, SearchAlbum, SearchArtist, SearchOptions, SearchPlaylist,
+        SearchResults, SearchTrack, SearchType,
     },
     player,
 };
@@ -37,6 +37,7 @@ pub enum SearchAction {
     Query(String),
     PlayTrack(usize),
     OpenPlaylist(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>, Option<String>),
 }
 
 impl std::fmt::Debug for SearchAction {
@@ -46,6 +47,7 @@ impl std::fmt::Debug for SearchAction {
             SearchAction::Query(query) => write!(f, "Query({query})"),
             SearchAction::PlayTrack(index) => write!(f, "PlayTrack({index})"),
             SearchAction::OpenPlaylist(playlist) => write!(f, "OpenPlaylist({})", playlist.name),
+            SearchAction::OpenArtist(artist, _) => write!(f, "OpenArtist({})", artist.name),
         }
     }
 }
@@ -53,6 +55,7 @@ impl std::fmt::Debug for SearchAction {
 #[derive(Debug)]
 pub enum SearchOutput {
     OpenPlaylist(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>, Option<String>),
 }
 
 #[derive(Debug)]
@@ -144,6 +147,9 @@ impl Component for SearchPage {
             SearchAction::PlayTrack(index) => self.play_from(index),
             SearchAction::OpenPlaylist(playlist) => {
                 let _ = sender.output(SearchOutput::OpenPlaylist(playlist));
+            }
+            SearchAction::OpenArtist(artist, picture) => {
+                let _ = sender.output(SearchOutput::OpenArtist(artist, picture));
             }
         }
     }
@@ -401,6 +407,18 @@ impl SearchPage {
                     "Artist",
                     sender,
                 );
+                let open = sender.input_sender().clone();
+                let entry = ArtistRef {
+                    uri: artist.uri.clone(),
+                    name: artist.name.clone(),
+                };
+                let portrait = artist.portrait.clone();
+                card.connect_clicked(move |_| {
+                    open.emit(SearchAction::OpenArtist(
+                        Box::new(entry.clone()),
+                        portrait.clone(),
+                    ));
+                });
                 shelf.append(&card);
             }
             self.sections.append(&scroller(&shelf));
@@ -603,7 +621,20 @@ impl SearchPage {
                     open.emit(SearchAction::OpenPlaylist(Box::new(entry.clone())));
                 });
             }
-            Pick::Artist(_) => {}
+            Pick::Artist(artist) => {
+                let open = sender.input_sender().clone();
+                let entry = ArtistRef {
+                    uri: artist.uri.clone(),
+                    name: artist.name.clone(),
+                };
+                let portrait = artist.portrait.clone();
+                card.connect_clicked(move |_| {
+                    open.emit(SearchAction::OpenArtist(
+                        Box::new(entry.clone()),
+                        portrait.clone(),
+                    ));
+                });
+            }
         }
 
         Some(card)

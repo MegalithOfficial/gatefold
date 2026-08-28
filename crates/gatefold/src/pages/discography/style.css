@@ -1,0 +1,48 @@
+.discography-page {
+    background: @surface_low;
+    border-radius: 28px;
+    margin: 12px 12px 0 0;
+}
+
+.discography-inner {
+    padding: 24px 24px 32px 24px;
+}
+
+.discography-head {
+    margin-bottom: 20px;
+}
+
+.discography-owner {
+    font-size: 9.5pt;
+    color: @on_surface_dim;
+}
+
+.discography-title {
+    font-size: 20pt;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+}
+
+.discography-empty {
+    color: @on_surface_dim;
+    margin-top: 20px;
+}
+
+.load-more {
+    margin-top: 24px;
+}
+
+.release-head {
+    margin-top: 24px;
+    margin-bottom: 4px;
+}
+
+.release-name {
+    font-size: 11pt;
+    font-weight: 600;
+}
+
+.release-detail {
+    font-size: 9pt;
+    color: @on_surface_dim;
+}
