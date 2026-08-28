@@ -879,6 +879,8 @@ dependencies = [
  "http",
  "librespot",
  "nucleo-matcher",
+ "oauth2",
+ "open",
  "protobuf",
  "rand 0.10.2",
  "reqwest",

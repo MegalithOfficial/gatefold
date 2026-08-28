@@ -1,0 +1,28 @@
+.welcome-mark {
+    margin: 22px 28px;
+    font-size: 13pt;
+    font-weight: 600;
+}
+
+.welcome-copy {
+    margin-right: 96px;
+}
+
+.welcome-title {
+    font-size: 20pt;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+}
+
+.welcome-note {
+    font-size: 9.5pt;
+    color: @on_surface_dim;
+}
+
+.welcome .pill {
+    padding: 0 24px;
+}
+
+.welcome .link {
+    font-size: 9.5pt;
+}

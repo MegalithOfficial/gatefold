@@ -26,6 +26,7 @@ use crate::{
         home::Home,
         playlist::{PlaylistAction, PlaylistOutput, PlaylistPage},
         search::{SearchAction, SearchOutput, SearchPage},
+        welcome::{self, Welcome, WelcomeAction, WelcomeOutput},
     },
     palette::Palette,
 };
@@ -47,9 +48,12 @@ enum Page {
 pub struct App {
     css: gtk::CssProvider,
     services: Option<Arc<Services>>,
+    login: Option<tokio::sync::watch::Sender<bool>>,
     history: Vec<Page>,
     position: usize,
+    stage: gtk::Stack,
     pages: gtk::Stack,
+    welcome: Controller<Welcome>,
     topbar: Controller<Topbar>,
     rack: Controller<Rack>,
     home: Controller<Home>,
@@ -73,6 +77,10 @@ pub enum AppAction {
     FocusSearch,
     Cover(std::path::PathBuf),
     AddAccount,
+    OpenSettings,
+    SignIn,
+    CancelSignIn,
+    CloseWelcome,
     LogOut,
 }
 
@@ -104,7 +112,13 @@ impl Component for App {
             set_icon_name: Some(crate::APP_ID),
 
             gtk::WindowHandle {
-                gtk::Box {
+                #[local_ref]
+                stage -> gtk::Stack {
+                    set_transition_type: gtk::StackTransitionType::Crossfade,
+                    set_transition_duration: 260,
+
+                    #[name = "shell"]
+                    gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
 
                     model.rack.widget() {},
@@ -123,6 +137,7 @@ impl Component for App {
 
                         model.deck.widget() {},
                     },
+                },
                 },
             },
         }
@@ -144,9 +159,18 @@ impl Component for App {
         let model = App {
             css,
             services: None,
+            login: None,
             history: vec![Page::Home],
             position: 0,
+            stage: gtk::Stack::new(),
             pages: gtk::Stack::new(),
+            welcome: Welcome::builder()
+                .launch(())
+                .forward(sender.input_sender(), |output| match output {
+                    WelcomeOutput::SignIn => AppAction::SignIn,
+                    WelcomeOutput::Cancel => AppAction::CancelSignIn,
+                    WelcomeOutput::Back => AppAction::CloseWelcome,
+                }),
             topbar: Topbar::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
@@ -165,6 +189,7 @@ impl Component for App {
                     RackOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
                     RackOutput::OpenHome => AppAction::OpenHome,
                     RackOutput::AddAccount => AppAction::AddAccount,
+                    RackOutput::OpenSettings => AppAction::OpenSettings,
                     RackOutput::LogOut => AppAction::LogOut,
                 },
             ),
@@ -211,6 +236,7 @@ impl Component for App {
                 },
             ),
         };
+        let stage = &model.stage;
         let pages = &model.pages;
         pages.add_named(model.home.widget(), Some("home"));
         pages.add_named(model.playlist.widget(), Some("playlist"));
@@ -221,20 +247,25 @@ impl Component for App {
         let icons = gtk::IconTheme::for_display(&gtk::gdk::Display::default().expect("display"));
         icons.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
         let widgets = view_output!();
+        model.stage.page(&widgets.shell).set_name("shell");
+        model
+            .stage
+            .add_named(model.welcome.widget(), Some("welcome"));
 
         crate::shortcuts::install(&root, sender.input_sender());
 
-        sender.oneshot_command(async move {
-            match start().await {
-                Ok(services) => AppCmd::Ready(services),
-                Err(error) => AppCmd::Failed(error.to_string()),
-            }
-        });
+        let mut model = model;
+        if session::signed_in() {
+            model.stage.set_visible_child_name("shell");
+            model.connect(&sender);
+        } else {
+            model.show_welcome();
+        }
 
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, action: Self::Input, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match action {
             AppAction::Cover(path) => {
                 let palette = Palette::from_cover(&path);
@@ -242,6 +273,26 @@ impl Component for App {
             }
             AppAction::ToggleRack => self.rack.emit(RackAction::ToggleCollapse),
             AppAction::AddAccount => tracing::info!("add account: not wired yet"),
+            AppAction::OpenSettings => self.show_welcome(),
+            AppAction::SignIn => {
+                if self.services.is_some() {
+                    self.welcome.emit(WelcomeAction::Idle);
+                    self.stage.set_visible_child_name("shell");
+                } else {
+                    self.connect(&sender);
+                }
+            }
+            AppAction::CancelSignIn => {
+                if let Some(login) = self.login.take() {
+                    let _ = login.send(true);
+                }
+            }
+            AppAction::CloseWelcome => {
+                if self.services.is_some() {
+                    self.welcome.emit(WelcomeAction::Idle);
+                    self.stage.set_visible_child_name("shell");
+                }
+            }
             AppAction::LogOut => {
                 if let Err(error) = session::clear_authentication() {
                     tracing::error!("log out: {error}");
@@ -289,6 +340,9 @@ impl Component for App {
         let _sender = _sender;
         match message {
             AppCmd::Ready(services) => {
+                self.login = None;
+                self.welcome.emit(WelcomeAction::Idle);
+                self.stage.set_visible_child_name("shell");
                 self.rack.emit(RackAction::SetServices(services.clone()));
                 self.topbar
                     .emit(TopbarAction::SetServices(services.clone()));
@@ -301,12 +355,43 @@ impl Component for App {
                     _sender.input(AppAction::OpenPlaylist(Box::new(first)));
                 }
             }
-            AppCmd::Failed(error) => tracing::error!("{error}"),
+            AppCmd::Failed(error) => {
+                tracing::error!("{error}");
+                self.login = None;
+                self.welcome.emit(WelcomeAction::Failed(error));
+                self.stage.set_visible_child_name("welcome");
+            }
         }
     }
 }
 
 impl App {
+    fn show_welcome(&mut self) {
+        self.css
+            .load_from_string(&css::stylesheet(&welcome::palette()));
+        self.stage.set_visible_child_name("welcome");
+    }
+
+    fn connect(&mut self, sender: &ComponentSender<Self>) {
+        let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
+        self.login = Some(cancel);
+        sender.command(move |out, shutdown| {
+            shutdown
+                .register(async move {
+                    tokio::select! {
+                        result = start() => {
+                            let _ = out.send(match result {
+                                Ok(services) => AppCmd::Ready(services),
+                                Err(error) => AppCmd::Failed(error.to_string()),
+                            });
+                        }
+                        _ = cancelled.changed() => {}
+                    }
+                })
+                .drop_on_shutdown()
+        });
+    }
+
     fn navigate(&mut self, page: Page) {
         self.history.truncate(self.position + 1);
         self.history.push(page);

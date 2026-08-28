@@ -28,6 +28,10 @@ pub async fn connect() -> Result<Session> {
     Ok(session)
 }
 
+pub fn signed_in() -> bool {
+    cache().ok().and_then(|cache| cache.credentials()).is_some()
+}
+
 pub fn clear_authentication() -> Result<()> {
     let dir = crate::cache_dir()?;
     for name in [

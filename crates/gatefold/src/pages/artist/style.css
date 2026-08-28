@@ -122,7 +122,7 @@ flowboxchild {
     font-weight: 600;
 }
 
-.link {
+button.link {
     min-height: 0;
     padding: 0;
     border: none;
@@ -130,9 +130,14 @@ flowboxchild {
     background: none;
     color: @primary;
     font-weight: 500;
+    text-decoration: none;
 }
 
-.link:hover {
+button.link > label {
+    text-decoration: none;
+}
+
+button.link:hover {
     background: none;
     color: alpha(@primary, 0.8);
 }

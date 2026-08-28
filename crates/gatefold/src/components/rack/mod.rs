@@ -49,6 +49,7 @@ pub enum RackAction {
     Open(Box<PlaylistRef>),
     AddAccount,
     ConnectSpotify,
+    Settings,
     LogOut,
 }
 
@@ -63,6 +64,7 @@ impl std::fmt::Debug for RackAction {
             RackAction::Open(playlist) => write!(f, "Open({})", playlist.name),
             RackAction::AddAccount => write!(f, "AddAccount"),
             RackAction::ConnectSpotify => write!(f, "ConnectSpotify"),
+            RackAction::Settings => write!(f, "Settings"),
             RackAction::LogOut => write!(f, "LogOut"),
         }
     }
@@ -73,6 +75,7 @@ pub enum RackOutput {
     OpenPlaylist(Box<PlaylistRef>),
     OpenHome,
     AddAccount,
+    OpenSettings,
     LogOut,
 }
 
@@ -272,10 +275,14 @@ impl Component for Rack {
         });
         sheet.append(&log_out);
         menu.set_child(Some(&sheet));
-        for trigger in [&me, &settings] {
+        me.connect_clicked({
             let menu = menu.clone();
-            trigger.connect_clicked(move |_| menu.popup());
-        }
+            move |_| menu.popup()
+        });
+        settings.connect_clicked({
+            let sender = sender.input_sender().clone();
+            move |_| sender.emit(RackAction::Settings)
+        });
 
         let model = Rack {
             services: None,
@@ -353,6 +360,9 @@ impl Component for Rack {
             RackAction::AddAccount => self.add_account(&sender),
             RackAction::ConnectSpotify => {
                 let _ = sender.output(RackOutput::AddAccount);
+            }
+            RackAction::Settings => {
+                let _ = sender.output(RackOutput::OpenSettings);
             }
             RackAction::LogOut => {
                 let _ = sender.output(RackOutput::LogOut);
