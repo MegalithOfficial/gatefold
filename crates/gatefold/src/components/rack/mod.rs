@@ -632,6 +632,8 @@ fn badge(initial: &str) -> gtk::Box {
     let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     badge.add_css_class("provider-badge");
     badge.set_size_request(32, 32);
+    badge.set_hexpand(false);
+    badge.set_valign(gtk::Align::Center);
     let letter = gtk::Label::new(Some(initial));
     letter.set_hexpand(true);
     letter.set_halign(gtk::Align::Center);

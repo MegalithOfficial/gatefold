@@ -135,15 +135,11 @@
     color: @on_surface_dim;
 }
 
-dialog.add-account sheet > sheet {
+dialog.add-account floating-sheet > sheet {
     background: @surface_high;
     border-radius: 28px;
     box-shadow: 0 12px 32px alpha(black, 0.35);
-}
-
-dialog.add-account sheet > sheet > outline {
-    border: none;
-    box-shadow: none;
+    outline: none;
 }
 
 .sheet-body {
