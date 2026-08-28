@@ -7,7 +7,7 @@ use gatefold_core::{
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw::prelude::*, gtk};
 
-use crate::app::Services;
+use crate::{app::Services, skeleton::track_row};
 
 pub const CSS: &str = include_str!("style.css");
 
@@ -485,36 +485,7 @@ impl PlaylistPage {
             self.shelf.remove(&child);
         }
         for index in 0..playlist.length.clamp(1, 12) {
-            let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-            row.add_css_class("track-skeleton");
-            let bar = |width: i32, height: i32| {
-                let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-                bar.add_css_class("skeleton");
-                bar.set_size_request(width, height);
-                bar.set_valign(gtk::Align::Center);
-                bar
-            };
-
-            let number = bar(14, 10);
-            number.set_halign(gtk::Align::End);
-            let leading = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            leading.set_size_request(20, -1);
-            leading.set_halign(gtk::Align::End);
-            leading.append(&number);
-            row.append(&leading);
-
-            let tile = bar(40, 40);
-            row.append(&tile);
-
-            let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
-            text.set_valign(gtk::Align::Center);
-            text.set_hexpand(true);
-            text.append(&bar(150 + (index % 4) as i32 * 30, 14));
-            text.append(&bar(90 + (index % 3) as i32 * 25, 12));
-            row.append(&text);
-
-            row.append(&bar(30, 10));
-            self.shelf.append(&row);
+            self.shelf.append(&track_row(index as i32, false));
         }
 
         if let Some(picture) = playlist.picture.clone() {

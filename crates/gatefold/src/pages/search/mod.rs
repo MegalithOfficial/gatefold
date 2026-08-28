@@ -13,7 +13,10 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::app::Services;
+use crate::{
+    app::Services,
+    skeleton::{bone, track_row},
+};
 
 pub const CSS: &str = include_str!("style.css");
 
@@ -192,6 +195,7 @@ impl SearchPage {
         self.query = query.clone();
         self.heading
             .set_text(&format!("Results for \u{201c}{query}\u{201d}"));
+        self.skeleton();
 
         let request = (*self.requests.borrow()).wrapping_add(1);
         self.requests.send_replace(request);
@@ -221,6 +225,65 @@ impl SearchPage {
                 })
                 .drop_on_shutdown()
         });
+    }
+
+    fn skeleton(&mut self) {
+        self.thumbs.clear();
+        self.rows.clear();
+        self.track_uris.clear();
+        while let Some(child) = self.sections.first_child() {
+            self.sections.remove(&child);
+        }
+
+        let hero = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+        let top = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        top.append(&section("Top result"));
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        card.add_css_class("card");
+        card.add_css_class("top-card");
+        card.set_valign(gtk::Align::Start);
+        let art = bone(128, 128);
+        art.add_css_class("tile");
+        card.append(&art);
+        let name = bone(150, 18);
+        name.set_margin_top(14);
+        card.append(&name);
+        let pill = bone(110, 22);
+        pill.add_css_class("round");
+        pill.set_margin_top(10);
+        card.append(&pill);
+        top.append(&card);
+        hero.append(&top);
+        let songs = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        songs.set_hexpand(true);
+        songs.append(&section("Songs"));
+        let list = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        for index in 0..6 {
+            list.append(&track_row(index, false));
+        }
+        songs.append(&list);
+        hero.append(&songs);
+        self.sections.append(&hero);
+
+        for (title, round) in [("Artists", true), ("Albums", false), ("Playlists", false)] {
+            self.sections.append(&section(title));
+            let shelf = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            for index in 0..6 {
+                let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                card.add_css_class("card");
+                let art = bone(104, 104);
+                art.add_css_class(if round { "round" } else { "tile" });
+                card.append(&art);
+                let name = bone(70 + (index % 3) * 12, 13);
+                name.set_margin_top(10);
+                card.append(&name);
+                let sub = bone(48, 11);
+                sub.set_margin_top(4);
+                card.append(&sub);
+                shelf.append(&card);
+            }
+            self.sections.append(&scroller(&shelf));
+        }
     }
 
     fn render(&mut self, request: u64, results: SearchResults, sender: &ComponentSender<Self>) {

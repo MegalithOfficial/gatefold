@@ -38,10 +38,6 @@
     background: alpha(white, 0.22);
 }
 
-.skeleton.tile {
-    border-radius: 8px;
-}
-
 .icon.on-photo {
     background: alpha(black, 0.35);
     color: white;

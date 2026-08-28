@@ -5,6 +5,7 @@ mod css;
 mod pages;
 mod palette;
 mod shortcuts;
+mod skeleton;
 mod square;
 mod text;
 

@@ -222,6 +222,14 @@ paned.gatefold > separator {
     animation: shimmer 900ms ease-in-out infinite alternate;
 }
 
+.skeleton.tile {
+    border-radius: 8px;
+}
+
+.skeleton.round {
+    border-radius: 999px;
+}
+
 .track-skeleton {
     min-height: 52px;
     padding: 0 16px;
