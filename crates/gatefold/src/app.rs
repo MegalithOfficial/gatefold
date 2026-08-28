@@ -72,6 +72,8 @@ pub enum AppAction {
     Forward,
     FocusSearch,
     Cover(std::path::PathBuf),
+    AddAccount,
+    LogOut,
 }
 
 pub enum AppCmd {
@@ -162,6 +164,8 @@ impl Component for App {
                 |output| match output {
                     RackOutput::OpenPlaylist(playlist) => AppAction::OpenPlaylist(playlist),
                     RackOutput::OpenHome => AppAction::OpenHome,
+                    RackOutput::AddAccount => AppAction::AddAccount,
+                    RackOutput::LogOut => AppAction::LogOut,
                 },
             ),
             home: Home::builder().launch(()).detach(),
@@ -237,6 +241,13 @@ impl Component for App {
                 self.css.load_from_string(&css::stylesheet(&palette));
             }
             AppAction::ToggleRack => self.rack.emit(RackAction::ToggleCollapse),
+            AppAction::AddAccount => tracing::info!("add account: not wired yet"),
+            AppAction::LogOut => {
+                if let Err(error) = session::clear_authentication() {
+                    tracing::error!("log out: {error}");
+                }
+                relm4::main_application().quit();
+            }
             AppAction::FocusSearch => self.topbar.emit(TopbarAction::FocusSearch),
             AppAction::OpenHome => self.navigate(Page::Home),
             AppAction::OpenPlaylist(playlist) => self.navigate(Page::Playlist(*playlist)),

@@ -97,8 +97,69 @@
 
 .account {
     margin-top: 6px;
-    padding: 8px 4px 4px 4px;
+    padding: 8px 4px 4px 0;
     border-top: 1px solid alpha(@on_surface, 0.08);
+}
+
+.me {
+    padding: 4px;
+    border: none;
+    box-shadow: none;
+    border-radius: 14px;
+    background: none;
+    color: @on_surface;
+    font-weight: 400;
+}
+
+.me:hover {
+    background: alpha(@on_surface, 0.06);
+}
+
+.menu-head {
+    padding: 6px 10px 10px 10px;
+}
+
+.menu-icon {
+    color: @on_surface_dim;
+}
+
+.menu-note {
+    font-size: 8.5pt;
+    color: @on_surface_dim;
+    background: alpha(@on_surface, 0.08);
+    border-radius: 999px;
+    padding: 2px 8px;
+}
+
+.quick-row:disabled {
+    color: @on_surface_dim;
+}
+
+dialog.add-account sheet > sheet {
+    background: @surface_high;
+    border-radius: 28px;
+    box-shadow: 0 12px 32px alpha(black, 0.35);
+}
+
+dialog.add-account sheet > sheet > outline {
+    border: none;
+    box-shadow: none;
+}
+
+.sheet-body {
+    padding: 20px;
+}
+
+.sheet-title {
+    font-size: 13pt;
+    font-weight: 600;
+}
+
+.provider-badge {
+    border-radius: 999px;
+    background: @primary_dim;
+    color: @on_primary_dim;
+    font-weight: 600;
 }
 
 .avatar {

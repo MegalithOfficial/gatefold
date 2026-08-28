@@ -29,6 +29,7 @@ pub struct Rack {
     avatar: gtk::Label,
     portrait: gtk::Picture,
     username: gtk::Label,
+    menu_name: gtk::Label,
     wide_static: Vec<gtk::Widget>,
     wide_rows: Vec<gtk::Widget>,
     thumbs: Vec<(String, gtk::Image)>,
@@ -44,6 +45,9 @@ pub enum RackAction {
     ToggleCollapse,
     Home,
     Open(Box<PlaylistRef>),
+    AddAccount,
+    ConnectSpotify,
+    LogOut,
 }
 
 impl std::fmt::Debug for RackAction {
@@ -55,6 +59,9 @@ impl std::fmt::Debug for RackAction {
             RackAction::ToggleCollapse => write!(f, "ToggleCollapse"),
             RackAction::Home => write!(f, "Home"),
             RackAction::Open(playlist) => write!(f, "Open({})", playlist.name),
+            RackAction::AddAccount => write!(f, "AddAccount"),
+            RackAction::ConnectSpotify => write!(f, "ConnectSpotify"),
+            RackAction::LogOut => write!(f, "LogOut"),
         }
     }
 }
@@ -63,6 +70,8 @@ impl std::fmt::Debug for RackAction {
 pub enum RackOutput {
     OpenPlaylist(Box<PlaylistRef>),
     OpenHome,
+    AddAccount,
+    LogOut,
 }
 
 #[derive(Debug)]
@@ -187,8 +196,9 @@ impl Component for Rack {
         list.add_controller(wheel);
         inner.append(&list);
 
-        let account = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let account = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         account.add_css_class("account");
+        let identity = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         let frame = gtk::Overlay::new();
         frame.add_css_class("avatar");
         frame.set_overflow(gtk::Overflow::Hidden);
@@ -204,7 +214,7 @@ impl Component for Rack {
         portrait.set_content_fit(gtk::ContentFit::Cover);
         portrait.set_visible(false);
         frame.add_overlay(&portrait);
-        account.append(&frame);
+        identity.append(&frame);
         let who = gtk::Box::new(gtk::Orientation::Vertical, 0);
         who.set_valign(gtk::Align::Center);
         who.set_hexpand(true);
@@ -213,13 +223,62 @@ impl Component for Rack {
         who.append(&username);
         who.append(&label("Spotify Premium", "shelf-kind"));
         wide_static.push(who.clone().upcast());
-        account.append(&who);
+        identity.append(&who);
+        let me = gtk::Button::builder().child(&identity).build();
+        me.add_css_class("me");
+        me.set_hexpand(true);
+        me.set_focus_on_click(false);
+        me.set_tooltip_text(Some("Account"));
+        account.append(&me);
         let settings = icon("emblem-system-symbolic", "nudge");
         settings.set_tooltip_text(Some("Settings"));
         settings.set_valign(gtk::Align::Center);
         wide_static.push(settings.clone().upcast());
         account.append(&settings);
         inner.append(&account);
+
+        let menu = gtk::Popover::new();
+        menu.set_parent(&me);
+        menu.set_position(gtk::PositionType::Top);
+        menu.set_has_arrow(false);
+        menu.set_offset(0, -6);
+        menu.remove_css_class("background");
+        menu.add_css_class("quick-menu");
+        let sheet = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        sheet.set_width_request(220);
+        let head = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        head.add_css_class("menu-head");
+        let menu_name = label("", "quick-name");
+        menu_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        head.append(&menu_name);
+        head.append(&label("Spotify Premium", "quick-sub"));
+        sheet.append(&head);
+        let add_account = menu_row(&menu_icon("list-add-symbolic"), "Add account", None);
+        add_account.connect_clicked({
+            let menu = menu.clone();
+            let sender = sender.input_sender().clone();
+            move |_| {
+                menu.popdown();
+                sender.emit(RackAction::AddAccount);
+            }
+        });
+        sheet.append(&add_account);
+        let log_out = menu_row(&menu_icon("system-log-out-symbolic"), "Log out", None);
+        log_out.set_margin_top(6);
+        log_out.connect_clicked({
+            let menu = menu.clone();
+            let sender = sender.input_sender().clone();
+            move |_| {
+                menu.popdown();
+                sender.emit(RackAction::LogOut);
+            }
+        });
+        sheet.append(&log_out);
+        menu.set_child(Some(&sheet));
+        for trigger in [&me, &settings] {
+            let menu = menu.clone();
+            trigger.connect_clicked(move |_| menu.popup());
+        }
 
         let model = Rack {
             services: None,
@@ -230,6 +289,7 @@ impl Component for Rack {
             avatar: avatar.clone(),
             portrait: portrait.clone(),
             username: username.clone(),
+            menu_name: menu_name.clone(),
             wide_static,
             wide_rows: Vec::new(),
             thumbs: Vec::new(),
@@ -295,6 +355,13 @@ impl Component for Rack {
             RackAction::Open(playlist) => {
                 let _ = sender.output(RackOutput::OpenPlaylist(playlist));
             }
+            RackAction::AddAccount => self.add_account(&sender),
+            RackAction::ConnectSpotify => {
+                let _ = sender.output(RackOutput::AddAccount);
+            }
+            RackAction::LogOut => {
+                let _ = sender.output(RackOutput::LogOut);
+            }
         }
     }
 
@@ -331,6 +398,33 @@ impl Component for Rack {
 }
 
 impl Rack {
+    fn add_account(&self, sender: &ComponentSender<Self>) {
+        let dialog = adw::Dialog::new();
+        dialog.add_css_class("add-account");
+        dialog.set_title("Add account");
+        dialog.set_content_width(320);
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 2);
+        body.add_css_class("sheet-body");
+        let title = label("Add account", "sheet-title");
+        title.set_margin_bottom(10);
+        body.append(&title);
+        let spotify = menu_row(&badge("S"), "Spotify", None);
+        spotify.connect_clicked({
+            let dialog = dialog.clone();
+            let sender = sender.input_sender().clone();
+            move |_| {
+                dialog.close();
+                sender.emit(RackAction::ConnectSpotify);
+            }
+        });
+        body.append(&spotify);
+        let youtube = menu_row(&badge("Y"), "YouTube Music", Some("Coming soon"));
+        youtube.set_sensitive(false);
+        body.append(&youtube);
+        dialog.set_child(Some(&body));
+        dialog.present(Some(&self.root));
+    }
+
     fn apply_profile(&mut self, profile: Profile, sender: &ComponentSender<Self>) {
         let initial = profile
             .name
@@ -341,6 +435,7 @@ impl Rack {
             .to_string();
         self.avatar.set_text(&initial);
         self.username.set_text(&profile.name);
+        self.menu_name.set_text(&profile.name);
 
         let Some(avatar) = profile.avatar else {
             return;
@@ -524,6 +619,41 @@ fn label(text: &str, class: &str) -> gtk::Label {
     label.set_xalign(0.0);
 
     label
+}
+
+fn menu_icon(name: &str) -> gtk::Image {
+    let image = gtk::Image::from_icon_name(name);
+    image.add_css_class("menu-icon");
+
+    image
+}
+
+fn badge(initial: &str) -> gtk::Box {
+    let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    badge.add_css_class("provider-badge");
+    badge.set_size_request(32, 32);
+    let letter = gtk::Label::new(Some(initial));
+    letter.set_hexpand(true);
+    letter.set_halign(gtk::Align::Center);
+    badge.append(&letter);
+
+    badge
+}
+
+fn menu_row(leading: &impl IsA<gtk::Widget>, text: &str, note: Option<&str>) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    content.append(leading);
+    let text = label(text, "quick-name");
+    text.set_hexpand(true);
+    content.append(&text);
+    if let Some(note) = note {
+        content.append(&label(note, "menu-note"));
+    }
+    let row = gtk::Button::builder().child(&content).build();
+    row.add_css_class("quick-row");
+    row.set_focus_on_click(false);
+
+    row
 }
 
 fn icon(name: &str, class: &str) -> gtk::Button {
