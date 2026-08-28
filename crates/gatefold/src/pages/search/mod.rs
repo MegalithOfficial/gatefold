@@ -761,6 +761,7 @@ impl SearchPage {
         }
         tile.set_size_request(size, size);
         tile.set_hexpand(false);
+        tile.set_halign(gtk::Align::Start);
         tile.set_overflow(gtk::Overflow::Hidden);
 
         let Some(picture) = picture else {
