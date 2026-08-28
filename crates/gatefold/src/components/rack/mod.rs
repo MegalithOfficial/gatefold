@@ -30,6 +30,8 @@ pub struct Rack {
     portrait: gtk::Picture,
     username: gtk::Label,
     menu_name: gtk::Label,
+    menu_avatar: gtk::Label,
+    menu_portrait: gtk::Picture,
     wide_static: Vec<gtk::Widget>,
     wide_rows: Vec<gtk::Widget>,
     thumbs: Vec<(String, gtk::Image)>,
@@ -199,21 +201,7 @@ impl Component for Rack {
         let account = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         account.add_css_class("account");
         let identity = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        let frame = gtk::Overlay::new();
-        frame.add_css_class("avatar");
-        frame.set_overflow(gtk::Overflow::Hidden);
-        frame.set_valign(gtk::Align::Center);
-        let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        spacer.set_size_request(40, 40);
-        frame.set_child(Some(&spacer));
-        let avatar = gtk::Label::new(Some("·"));
-        avatar.set_halign(gtk::Align::Center);
-        avatar.set_valign(gtk::Align::Center);
-        frame.add_overlay(&avatar);
-        let portrait = gtk::Picture::new();
-        portrait.set_content_fit(gtk::ContentFit::Cover);
-        portrait.set_visible(false);
-        frame.add_overlay(&portrait);
+        let (frame, avatar, portrait) = portrait_frame(40);
         identity.append(&frame);
         let who = gtk::Box::new(gtk::Orientation::Vertical, 0);
         who.set_valign(gtk::Align::Center);
@@ -244,14 +232,23 @@ impl Component for Rack {
         menu.set_offset(0, -6);
         menu.remove_css_class("background");
         menu.add_css_class("quick-menu");
-        let sheet = gtk::Box::new(gtk::Orientation::Vertical, 2);
-        sheet.set_width_request(220);
-        let head = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let sheet = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        sheet.set_width_request(240);
+        let head = gtk::Box::new(gtk::Orientation::Horizontal, 10);
         head.add_css_class("menu-head");
+        let (menu_frame, menu_avatar, menu_portrait) = portrait_frame(36);
+        head.append(&menu_frame);
+        let me_text = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        me_text.set_valign(gtk::Align::Center);
+        me_text.set_hexpand(true);
         let menu_name = label("", "quick-name");
         menu_name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-        head.append(&menu_name);
-        head.append(&label("Spotify Premium", "quick-sub"));
+        me_text.append(&menu_name);
+        me_text.append(&label("Spotify Premium", "quick-sub"));
+        head.append(&me_text);
+        let active = gtk::Image::from_icon_name("object-select-symbolic");
+        active.add_css_class("menu-check");
+        head.append(&active);
         sheet.append(&head);
         let add_account = menu_row(&menu_icon("list-add-symbolic"), "Add account", None);
         add_account.connect_clicked({
@@ -290,6 +287,8 @@ impl Component for Rack {
             portrait: portrait.clone(),
             username: username.clone(),
             menu_name: menu_name.clone(),
+            menu_avatar: menu_avatar.clone(),
+            menu_portrait: menu_portrait.clone(),
             wide_static,
             wide_rows: Vec::new(),
             thumbs: Vec::new(),
@@ -343,11 +342,7 @@ impl Component for Rack {
                     self.apply_profile(profile, &sender);
                 }
             }
-            RackAction::ShowAvatar(path) => {
-                self.portrait.set_filename(Some(&path));
-                self.portrait.set_visible(true);
-                self.avatar.set_visible(false);
-            }
+            RackAction::ShowAvatar(path) => self.show_portrait(&path),
             RackAction::ToggleCollapse => self.toggle_collapse(),
             RackAction::Home => {
                 let _ = sender.output(RackOutput::OpenHome);
@@ -374,11 +369,7 @@ impl Component for Rack {
         match message {
             RackCmd::Playlists(playlists) => self.render(playlists, &sender),
             RackCmd::Profile(profile) => self.apply_profile(profile, &sender),
-            RackCmd::Avatar(path) => {
-                self.portrait.set_filename(Some(&path));
-                self.portrait.set_visible(true);
-                self.avatar.set_visible(false);
-            }
+            RackCmd::Avatar(path) => self.show_portrait(&path),
             RackCmd::Picture(uri, path) => {
                 for (row_uri, image) in &self.thumbs {
                     if row_uri == &uri {
@@ -405,10 +396,20 @@ impl Rack {
         dialog.set_content_width(320);
         let body = gtk::Box::new(gtk::Orientation::Vertical, 2);
         body.add_css_class("sheet-body");
-        let title = label("Add account", "sheet-title");
-        title.set_margin_bottom(10);
-        body.append(&title);
-        let spotify = menu_row(&badge("S"), "Spotify", None);
+        body.append(&label("Add account", "sheet-title"));
+        let sub = label(
+            "Sign in to another service and switch between them from the sidebar.",
+            "sheet-sub",
+        );
+        sub.set_wrap(true);
+        sub.set_margin_bottom(14);
+        body.append(&sub);
+        let spotify = provider_row(
+            "S",
+            "Spotify",
+            "Sign in with your Spotify account",
+            &menu_icon("go-next-symbolic"),
+        );
         spotify.connect_clicked({
             let dialog = dialog.clone();
             let sender = sender.input_sender().clone();
@@ -418,11 +419,27 @@ impl Rack {
             }
         });
         body.append(&spotify);
-        let youtube = menu_row(&badge("Y"), "YouTube Music", Some("Coming soon"));
+        let youtube = provider_row(
+            "Y",
+            "YouTube Music",
+            "Not available yet",
+            &label("Coming soon", "menu-note"),
+        );
         youtube.set_sensitive(false);
         body.append(&youtube);
         dialog.set_child(Some(&body));
         dialog.present(Some(&self.root));
+    }
+
+    fn show_portrait(&self, path: &std::path::Path) {
+        for (portrait, initial) in [
+            (&self.portrait, &self.avatar),
+            (&self.menu_portrait, &self.menu_avatar),
+        ] {
+            portrait.set_filename(Some(path));
+            portrait.set_visible(true);
+            initial.set_visible(false);
+        }
     }
 
     fn apply_profile(&mut self, profile: Profile, sender: &ComponentSender<Self>) {
@@ -434,6 +451,7 @@ impl Rack {
             .to_uppercase()
             .to_string();
         self.avatar.set_text(&initial);
+        self.menu_avatar.set_text(&initial);
         self.username.set_text(&profile.name);
         self.menu_name.set_text(&profile.name);
 
@@ -628,10 +646,30 @@ fn menu_icon(name: &str) -> gtk::Image {
     image
 }
 
+fn portrait_frame(size: i32) -> (gtk::Overlay, gtk::Label, gtk::Picture) {
+    let frame = gtk::Overlay::new();
+    frame.add_css_class("avatar");
+    frame.set_overflow(gtk::Overflow::Hidden);
+    frame.set_valign(gtk::Align::Center);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_size_request(size, size);
+    frame.set_child(Some(&spacer));
+    let initial = gtk::Label::new(Some("·"));
+    initial.set_halign(gtk::Align::Center);
+    initial.set_valign(gtk::Align::Center);
+    frame.add_overlay(&initial);
+    let portrait = gtk::Picture::new();
+    portrait.set_content_fit(gtk::ContentFit::Cover);
+    portrait.set_visible(false);
+    frame.add_overlay(&portrait);
+
+    (frame, initial, portrait)
+}
+
 fn badge(initial: &str) -> gtk::Box {
     let badge = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     badge.add_css_class("provider-badge");
-    badge.set_size_request(32, 32);
+    badge.set_size_request(40, 40);
     badge.set_hexpand(false);
     badge.set_valign(gtk::Align::Center);
     let letter = gtk::Label::new(Some(initial));
@@ -640,6 +678,28 @@ fn badge(initial: &str) -> gtk::Box {
     badge.append(&letter);
 
     badge
+}
+
+fn provider_row(
+    initial: &str,
+    name: &str,
+    sub: &str,
+    trailing: &impl IsA<gtk::Widget>,
+) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+    content.append(&badge(initial));
+    let text = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    text.set_valign(gtk::Align::Center);
+    text.set_hexpand(true);
+    text.append(&label(name, "quick-name"));
+    text.append(&label(sub, "quick-sub"));
+    content.append(&text);
+    content.append(trailing);
+    let row = gtk::Button::builder().child(&content).build();
+    row.add_css_class("quick-row");
+    row.set_focus_on_click(false);
+
+    row
 }
 
 fn menu_row(leading: &impl IsA<gtk::Widget>, text: &str, note: Option<&str>) -> gtk::Button {

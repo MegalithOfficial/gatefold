@@ -119,6 +119,16 @@
     padding: 6px 10px 10px 10px;
 }
 
+.menu-check {
+    color: @on_surface_dim;
+}
+
+.sheet-sub {
+    font-size: 9.5pt;
+    color: @on_surface_dim;
+    margin-top: 2px;
+}
+
 .menu-icon {
     color: @on_surface_dim;
 }
@@ -159,8 +169,6 @@ dialog.add-account floating-sheet > sheet {
 }
 
 .avatar {
-    min-width: 40px;
-    min-height: 40px;
     border-radius: 999px;
     background: @primary;
 }
