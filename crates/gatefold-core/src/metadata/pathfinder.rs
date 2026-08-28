@@ -13,6 +13,7 @@ use crate::{
 
 const ENDPOINT: &str = "https://api-partner.spotify.com/pathfinder/v1/query";
 const PAGE: usize = 50;
+const BANNER_WIDTH: u64 = 1920;
 
 pub(crate) async fn artist(session: &Session, uri: &str) -> Result<ArtistInfo> {
     let variables = json!({ "uri": uri, "locale": "", "includePrerelease": true });
@@ -32,7 +33,7 @@ pub(crate) async fn artist(session: &Session, uri: &str) -> Result<ArtistInfo> {
             .context("artist overview without a name")?
             .to_owned(),
         portrait_id: image(&artist["visuals"]["avatarImage"]),
-        banner: image(&artist["visuals"]["gallery"]["items"][0])
+        banner: header(&artist["headerImage"]["data"])
             .or_else(|| image(&artist["visuals"]["headerImage"])),
         biography: artist["profile"]["biography"]["text"]
             .as_str()
@@ -117,6 +118,18 @@ fn track(value: &Value) -> Option<TrackInfo> {
 
 fn image(value: &Value) -> Option<String> {
     value["sources"][0]["url"].as_str().map(str::to_owned)
+}
+
+fn header(value: &Value) -> Option<String> {
+    let sources = value["sources"].as_array()?;
+    let width = |source: &&Value| source["maxWidth"].as_u64().unwrap_or_default();
+    sources
+        .iter()
+        .filter(|source| width(source) <= BANNER_WIDTH)
+        .max_by_key(width)
+        .or_else(|| sources.iter().min_by_key(width))?["url"]
+        .as_str()
+        .map(str::to_owned)
 }
 
 fn release(value: &Value) -> Option<AlbumRef> {

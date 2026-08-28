@@ -29,6 +29,19 @@
     color: alpha(white, 0.82);
 }
 
+.hero-skeleton {
+    background: alpha(@on_surface, 0.07);
+    animation: shimmer 900ms ease-in-out infinite alternate;
+}
+
+.skeleton.hero-bone {
+    background: alpha(white, 0.22);
+}
+
+.skeleton.tile {
+    border-radius: 8px;
+}
+
 .icon.on-photo {
     background: alpha(black, 0.35);
     color: white;

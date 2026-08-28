@@ -31,11 +31,13 @@ pub struct ArtistPage {
     folded: Vec<gtk::Widget>,
     shelves: Vec<(gtk::Button, gtk::Widget, ReleaseGroup)>,
     photo: gtk::Picture,
+    poster: gtk::Box,
     tint: gtk::Picture,
     face: gtk::Picture,
     name: gtk::Label,
     sticky_name: gtk::Label,
     detail: gtk::Label,
+    detail_bone: gtk::Box,
     play_icon: gtk::Image,
     play_label: gtk::Label,
     latest: gtk::Box,
@@ -128,6 +130,11 @@ impl Component for ArtistPage {
         photo.set_vexpand(true);
         root.set_child(Some(&photo));
 
+        let poster = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        poster.add_css_class("hero-skeleton");
+        poster.set_can_target(false);
+        root.add_overlay(&poster);
+
         let tint = gtk::Picture::new();
         tint.set_content_fit(gtk::ContentFit::Cover);
         tint.set_can_shrink(true);
@@ -159,6 +166,12 @@ impl Component for ArtistPage {
         detail.add_css_class("hero-detail");
         detail.set_xalign(0.0);
         head.append(&detail);
+        let detail_bone = bone(240, 12);
+        detail_bone.add_css_class("hero-bone");
+        detail_bone.set_halign(gtk::Align::Start);
+        detail_bone.set_margin_top(4);
+        detail_bone.set_margin_bottom(4);
+        head.append(&detail_bone);
 
         let actions = gtk::Box::new(gtk::Orientation::Horizontal, 4);
         actions.set_margin_top(20);
@@ -389,11 +402,13 @@ impl Component for ArtistPage {
             folded: Vec::new(),
             shelves: Vec::new(),
             photo,
+            poster,
             tint,
             face,
             name,
             sticky_name,
             detail,
+            detail_bone,
             play_icon,
             play_label,
             latest,
@@ -488,13 +503,13 @@ impl Component for ArtistPage {
             }
             ArtistCmd::Portrait(request, path) => {
                 if request == *self.requests.borrow() {
-                    self.portrait(&path);
-                    let _ = sender.output(ArtistOutput::Cover(path));
+                    self.face.set_filename(Some(&path));
                 }
             }
             ArtistCmd::Banner(request, path) => {
                 if request == *self.requests.borrow() {
                     self.hero(&path);
+                    let _ = sender.output(ArtistOutput::Cover(path));
                 }
             }
             ArtistCmd::Singles(request, singles) => {
@@ -547,7 +562,9 @@ impl ArtistPage {
         self.artist = artist;
         self.name.set_text(&self.artist.name);
         self.sticky_name.set_text(&self.artist.name);
-        self.detail.set_text("Artist");
+        self.detail.set_visible(false);
+        self.detail_bone.set_visible(true);
+        self.poster.set_visible(true);
         self.photo.set_paintable(gtk::gdk::Paintable::NONE);
         self.tint.set_paintable(gtk::gdk::Paintable::NONE);
         self.face.set_paintable(gtk::gdk::Paintable::NONE);
@@ -558,7 +575,6 @@ impl ArtistPage {
         self.thumbs.clear();
         self.folded.clear();
         self.shelves.clear();
-        self.latest.set_visible(false);
         self.more.set_visible(false);
         self.fans.set_visible(false);
         self.blurb.set_text("");
@@ -581,31 +597,67 @@ impl ArtistPage {
         for index in 0..5 {
             let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
             row.add_css_class("track-skeleton");
-            let bar = |width: i32, height: i32| {
-                let bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-                bar.add_css_class("skeleton");
-                bar.set_size_request(width, height);
-                bar.set_valign(gtk::Align::Center);
-                bar
-            };
-            let number = bar(14, 10);
+            let number = bone(14, 10);
             number.set_halign(gtk::Align::End);
             let leading = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             leading.set_size_request(20, -1);
             leading.set_halign(gtk::Align::End);
             leading.append(&number);
             row.append(&leading);
-            row.append(&bar(40, 40));
+            row.append(&bone(40, 40));
             let text = gtk::Box::new(gtk::Orientation::Vertical, 1);
             text.set_valign(gtk::Align::Center);
             text.set_hexpand(true);
-            text.append(&bar(150 + (index % 4) * 30, 14));
-            text.append(&bar(90 + (index % 3) * 25, 12));
+            text.append(&bone(150 + (index % 4) * 30, 14));
+            text.append(&bone(90 + (index % 3) * 25, 12));
             row.append(&text);
-            row.append(&bar(110, 10));
-            row.append(&bar(30, 10));
+            row.append(&bone(110, 10));
+            row.append(&bone(30, 10));
             self.popular.append(&row);
         }
+
+        let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        card.add_css_class("latest-card");
+        let eyebrow = bone(88, 10);
+        eyebrow.set_margin_top(2);
+        eyebrow.set_margin_bottom(12);
+        card.append(&eyebrow);
+        let art = bone(196, 196);
+        art.add_css_class("tile");
+        card.append(&art);
+        let name = bone(140, 14);
+        name.set_margin_top(12);
+        card.append(&name);
+        let sub = bone(72, 11);
+        sub.set_margin_top(4);
+        card.append(&sub);
+        self.latest.append(&card);
+        self.latest.set_visible(true);
+
+        let grid = gtk::FlowBox::new();
+        grid.set_selection_mode(gtk::SelectionMode::None);
+        grid.set_homogeneous(true);
+        grid.set_column_spacing(8);
+        grid.set_row_spacing(12);
+        grid.set_min_children_per_line(2);
+        grid.set_max_children_per_line(8);
+        grid.set_halign(gtk::Align::Start);
+        grid.set_margin_top(14);
+        for index in 0..6 {
+            let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            body.add_css_class("card");
+            let art = bone(160, 160);
+            art.add_css_class("tile");
+            body.append(&art);
+            let name = bone(100 + (index % 3) * 20, 13);
+            name.set_margin_top(10);
+            body.append(&name);
+            let year = bone(36, 11);
+            year.set_margin_top(4);
+            body.append(&year);
+            grid.append(&body);
+        }
+        self.discography.append(&grid);
 
         if let Some(picture) = picture {
             self.fetch_picture(request, picture, &services, sender, ArtistCmd::Portrait);
@@ -678,14 +730,8 @@ impl ArtistPage {
         });
     }
 
-    fn portrait(&self, path: &std::path::Path) {
-        self.face.set_filename(Some(path));
-        if self.photo.paintable().is_none() {
-            self.hero(path);
-        }
-    }
-
     fn hero(&self, path: &std::path::Path) {
+        self.poster.set_visible(false);
         self.photo.set_filename(Some(path));
         let palette = Palette::from_cover(path);
         if let Some(texture) = duotone(path, palette.tone(0.5, 0.10), palette.tone(0.55, 0.72)) {
@@ -702,9 +748,13 @@ impl ArtistPage {
         {
             self.fetch_picture(request, portrait, &services, sender, ArtistCmd::Portrait);
         }
-        if let Some(banner) = info.banner.clone() {
-            self.fetch_picture(request, banner, &services, sender, ArtistCmd::Banner);
+        if let Some(hero) = info.banner.clone().or_else(|| info.portrait_id.clone()) {
+            self.fetch_picture(request, hero, &services, sender, ArtistCmd::Banner);
+        } else {
+            self.poster.set_visible(false);
         }
+        self.detail_bone.set_visible(false);
+        self.detail.set_visible(true);
         let mut detail = Vec::new();
         if let Some(listeners) = info.monthly_listeners {
             detail.push(format!("{} monthly listeners", text::thousands(listeners)));
@@ -719,8 +769,11 @@ impl ArtistPage {
             .chain(info.singles.iter())
             .max_by_key(|album| album.year)
             .cloned();
+        while let Some(child) = self.latest.first_child() {
+            self.latest.remove(&child);
+        }
+        self.latest.set_visible(latest.is_some());
         if let Some(album) = latest {
-            self.latest.set_visible(true);
             let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
             let eyebrow = gtk::Label::new(Some("Latest release"));
             eyebrow.add_css_class("latest-eyebrow");
@@ -848,6 +901,9 @@ impl ArtistPage {
         self.more.set_visible(!self.folded.is_empty());
         self.more.set_label("Show more");
 
+        while let Some(child) = self.discography.first_child() {
+            self.discography.remove(&child);
+        }
         let groups = [
             (ReleaseGroup::Albums, &info.albums),
             (ReleaseGroup::Singles, &info.singles),
@@ -1215,6 +1271,16 @@ fn strip_tags(text: &str) -> String {
         }
     }
     out
+}
+
+fn bone(width: i32, height: i32) -> gtk::Box {
+    let bone = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    bone.add_css_class("skeleton");
+    bone.set_size_request(width, height);
+    bone.set_valign(gtk::Align::Center);
+    bone.set_halign(gtk::Align::Start);
+
+    bone
 }
 
 fn section(title: &str) -> gtk::Label {
