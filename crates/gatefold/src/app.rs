@@ -199,11 +199,13 @@ impl Component for App {
                     DiscographyOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
                 },
             ),
-            deck: Deck::builder()
-                .launch(())
-                .forward(sender.input_sender(), |DeckOutput::Cover(path)| {
-                    AppAction::Cover(path)
-                }),
+            deck: Deck::builder().launch(()).forward(
+                sender.input_sender(),
+                |output| match output {
+                    DeckOutput::Cover(path) => AppAction::Cover(path),
+                    DeckOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
+                },
+            ),
         };
         let pages = &model.pages;
         pages.add_named(model.home.widget(), Some("home"));

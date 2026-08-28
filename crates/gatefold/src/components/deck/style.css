@@ -18,6 +18,16 @@
     color: @on_surface_dim;
 }
 
+.now-artist link,
+.now-artist link:visited {
+    color: @on_surface_dim;
+    text-decoration: none;
+}
+
+.now-artist link:hover {
+    color: @on_surface;
+}
+
 .now-time {
     font-size: 8.5pt;
     font-family: "Adwaita Mono";

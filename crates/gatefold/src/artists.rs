@@ -1,20 +1,27 @@
 use gatefold_core::model::ArtistRef;
 use relm4::gtk::{self, glib, prelude::*};
 
-pub fn label(artists: &[ArtistRef], open: impl Fn(ArtistRef) + 'static) -> gtk::Label {
-    let markup = artists
+pub fn markup(artists: &[ArtistRef]) -> String {
+    artists
         .iter()
         .map(|artist| {
-            format!(
-                "<a href=\"{}\">{}</a>",
-                glib::markup_escape_text(&artist.uri),
-                glib::markup_escape_text(&artist.name)
-            )
+            let name = glib::markup_escape_text(&artist.name);
+            if artist.uri.is_empty() {
+                name.to_string()
+            } else {
+                format!(
+                    "<a href=\"{}\">{name}</a>",
+                    glib::markup_escape_text(&artist.uri)
+                )
+            }
         })
         .collect::<Vec<_>>()
-        .join(", ");
+        .join(", ")
+}
+
+pub fn label(artists: &[ArtistRef], open: impl Fn(ArtistRef) + 'static) -> gtk::Label {
     let label = gtk::Label::new(None);
-    label.set_markup(&markup);
+    label.set_markup(&markup(artists));
     label.add_css_class("track-artists");
     label.set_xalign(0.0);
     label.set_halign(gtk::Align::Start);

@@ -2,17 +2,19 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use gatefold_core::{
     images,
+    model::ArtistRef,
     player::{self, Repeat},
 };
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, gtk, gtk::prelude::*};
 
-use crate::app::Services;
+use crate::{app::Services, artists};
 
 pub const CSS: &str = include_str!("style.css");
 
 #[derive(Debug)]
 pub enum DeckOutput {
     Cover(PathBuf),
+    OpenArtist(Box<ArtistRef>),
 }
 
 pub struct Deck {
@@ -22,7 +24,7 @@ pub struct Deck {
     seek_epoch: u64,
     cover: Option<PathBuf>,
     title: String,
-    artist: String,
+    artists: Vec<ArtistRef>,
     playing: bool,
     shuffle: bool,
     repeat: Repeat,
@@ -40,6 +42,7 @@ pub enum DeckAction {
     Repeat,
     Seek(f64),
     Volume(f64),
+    OpenArtist(String),
 }
 
 impl std::fmt::Debug for DeckAction {
@@ -53,6 +56,7 @@ impl std::fmt::Debug for DeckAction {
             DeckAction::Repeat => write!(f, "Repeat"),
             DeckAction::Seek(value) => write!(f, "Seek({value})"),
             DeckAction::Volume(value) => write!(f, "Volume({value})"),
+            DeckAction::OpenArtist(uri) => write!(f, "OpenArtist({uri})"),
         }
     }
 }
@@ -120,14 +124,20 @@ impl Component for Deck {
 
                     gtk::Label {
                         #[watch]
-                        set_label: &model.artist,
+                        set_markup: &artists::markup(&model.artists),
                         #[watch]
-                        set_visible: !model.artist.is_empty(),
+                        set_visible: !model.artists.is_empty(),
+                        #[watch]
+                        set_focusable: false,
                         set_xalign: 0.0,
                         set_width_chars: 8,
                         set_max_width_chars: 16,
                         set_ellipsize: gtk::pango::EllipsizeMode::End,
                         add_css_class: "now-artist",
+                        connect_activate_link[sender] => move |_, uri| {
+                            sender.input(DeckAction::OpenArtist(uri.to_owned()));
+                            gtk::glib::Propagation::Stop
+                        },
                     },
                 },
             },
@@ -331,7 +341,7 @@ impl Component for Deck {
             seek_epoch: 0,
             cover: None,
             title: String::new(),
-            artist: String::new(),
+            artists: Vec::new(),
             playing: false,
             shuffle: false,
             repeat: Repeat::Off,
@@ -402,6 +412,11 @@ impl Component for Deck {
                 self.volume = percent.clamp(0.0, 100.0);
                 playback.set_volume((self.volume / 100.0 * u16::MAX as f64) as u16);
             }
+            DeckAction::OpenArtist(uri) => {
+                if let Some(artist) = self.artists.iter().find(|artist| artist.uri == uri) {
+                    let _ = sender.output(DeckOutput::OpenArtist(Box::new(artist.clone())));
+                }
+            }
             DeckAction::SetServices(_) => {}
         }
     }
@@ -442,7 +457,7 @@ impl Component for Deck {
                 } => {
                     self.uri = uri.clone();
                     self.title = name;
-                    self.artist = artists;
+                    self.artists = artists;
                     self.duration_ms = duration_ms;
                     self.position_ms = 0;
                     if let Some(id) = cover_id {

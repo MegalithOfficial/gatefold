@@ -8,7 +8,10 @@ use std::{
 
 use rand::seq::SliceRandom;
 
-use crate::sink::{Rodio, SinkHandle};
+use crate::{
+    model::ArtistRef,
+    sink::{Rodio, SinkHandle},
+};
 
 use anyhow::{Context, Result};
 use librespot::{
@@ -43,7 +46,7 @@ pub enum Event {
     TrackChanged {
         uri: String,
         name: String,
-        artists: String,
+        artists: Vec<ArtistRef>,
         duration_ms: u32,
         cover_id: Option<String>,
     },
@@ -422,14 +425,20 @@ impl Playback {
                 });
             }
             PlayerEvent::TrackChanged { audio_item } => {
+                let unlinked = |name: &String| ArtistRef {
+                    uri: String::new(),
+                    name: name.clone(),
+                };
                 let artists = match &audio_item.unique_fields {
                     UniqueFields::Track { artists, .. } => artists
                         .iter()
-                        .map(|artist| artist.name.clone())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                    UniqueFields::Local { artists, .. } => artists.clone().unwrap_or_default(),
-                    UniqueFields::Episode { show_name, .. } => show_name.clone(),
+                        .map(|artist| ArtistRef {
+                            uri: uri_string(&artist.id),
+                            name: artist.name.clone(),
+                        })
+                        .collect(),
+                    UniqueFields::Local { artists, .. } => artists.iter().map(unlinked).collect(),
+                    UniqueFields::Episode { show_name, .. } => vec![unlinked(show_name)],
                 };
                 let cover_id = audio_item
                     .covers
