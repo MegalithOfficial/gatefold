@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{cell::Cell, rc::Rc, sync::Arc, time::Duration};
 
 use gatefold_core::{
     images, metadata,
@@ -34,6 +34,7 @@ pub struct DiscographyPage {
     rows: Vec<(String, gtk::Widget, gtk::Image)>,
     thumbs: Vec<(String, gtk::Picture)>,
     chips: Vec<gtk::Button>,
+    query: String,
     next_offset: Option<usize>,
     loading: bool,
     release_count: usize,
@@ -41,6 +42,7 @@ pub struct DiscographyPage {
     song_list: Option<gtk::Box>,
     owner: gtk::Label,
     title: gtk::Label,
+    search: gtk::Entry,
     body: gtk::Box,
     load_more: gtk::Button,
     scroll: gtk::ScrolledWindow,
@@ -64,6 +66,7 @@ impl View {
 pub enum DiscographyAction {
     Show(Arc<Services>, ArtistRef, View),
     Select(usize),
+    Search(String),
     LoadMore,
     PlayTrack(usize),
     OpenAlbum(Box<PlaylistRef>),
@@ -76,6 +79,7 @@ impl std::fmt::Debug for DiscographyAction {
                 write!(f, "Show({}, {})", artist.name, view.title())
             }
             DiscographyAction::Select(index) => write!(f, "Select({index})"),
+            DiscographyAction::Search(query) => write!(f, "Search({query})"),
             DiscographyAction::LoadMore => f.write_str("LoadMore"),
             DiscographyAction::PlayTrack(index) => write!(f, "PlayTrack({index})"),
             DiscographyAction::OpenAlbum(album) => write!(f, "OpenAlbum({})", album.name),
@@ -91,7 +95,7 @@ pub enum DiscographyOutput {
 #[derive(Debug)]
 pub enum DiscographyCmd {
     Releases(u64, Vec<AlbumRef>, usize, Option<usize>),
-    Songs(u64, Vec<TrackInfo>, Option<usize>),
+    Songs(u64, Vec<TrackInfo>, usize, Option<usize>),
     Image(u64, String, std::path::PathBuf),
     Playback(player::Event),
     Failed(u64, String),
@@ -133,7 +137,11 @@ impl Component for DiscographyPage {
         head.append(&title);
         inner.append(&head);
 
+        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        controls.add_css_class("discography-controls");
         let filters = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        filters.set_hexpand(true);
+        filters.set_valign(gtk::Align::Center);
         let mut chips = Vec::new();
         for (index, view) in GROUPS
             .iter()
@@ -148,7 +156,73 @@ impl Component for DiscographyPage {
             filters.append(&chip);
             chips.push(chip);
         }
-        inner.append(&filters);
+        controls.append(&filters);
+
+        let search = gtk::Entry::new();
+        search.add_css_class("search");
+        search.add_css_class("discography-search");
+        search.set_placeholder_text(Some("Filter"));
+        search.set_primary_icon_name(Some("system-search-symbolic"));
+        search.set_width_chars(22);
+        search.set_valign(gtk::Align::Center);
+        search.connect_changed(|search| {
+            let empty = search.text().is_empty();
+            search.set_secondary_icon_name((!empty).then_some("edit-clear-symbolic"));
+        });
+        search.connect_icon_press(|search, position| {
+            if position == gtk::EntryIconPosition::Secondary {
+                search.set_text("");
+            }
+        });
+        let pending = Rc::new(Cell::new(0_u64));
+        search.connect_changed({
+            let pending = pending.clone();
+            let sender = sender.input_sender().clone();
+            move |search| {
+                let epoch = pending.get().wrapping_add(1);
+                pending.set(epoch);
+                let text = search.text().to_string();
+                if text.trim().is_empty() {
+                    sender.emit(DiscographyAction::Search(text));
+                    return;
+                }
+                let pending = pending.clone();
+                let sender = sender.clone();
+                gtk::glib::timeout_add_local_once(Duration::from_millis(200), move || {
+                    if pending.get() == epoch {
+                        sender.emit(DiscographyAction::Search(text));
+                    }
+                });
+            }
+        });
+        search.connect_activate({
+            let pending = pending.clone();
+            let sender = sender.input_sender().clone();
+            move |search| {
+                pending.set(pending.get().wrapping_add(1));
+                sender.emit(DiscographyAction::Search(search.text().to_string()));
+            }
+        });
+        let escape = gtk::EventControllerKey::new();
+        escape.connect_key_pressed({
+            let search = search.clone();
+            move |_, key, _, _| {
+                if key != gtk::gdk::Key::Escape {
+                    return gtk::glib::Propagation::Proceed;
+                }
+                if search.text().is_empty() {
+                    if let Some(root) = search.root() {
+                        root.set_focus(None::<&gtk::Widget>);
+                    }
+                } else {
+                    search.set_text("");
+                }
+                gtk::glib::Propagation::Stop
+            }
+        });
+        search.add_controller(escape);
+        controls.append(&search);
+        inner.append(&controls);
 
         let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
         inner.append(&body);
@@ -186,6 +260,7 @@ impl Component for DiscographyPage {
             rows: Vec::new(),
             thumbs: Vec::new(),
             chips,
+            query: String::new(),
             next_offset: None,
             loading: false,
             release_count: 0,
@@ -193,6 +268,7 @@ impl Component for DiscographyPage {
             song_list: None,
             owner,
             title,
+            search,
             body,
             load_more,
             scroll,
@@ -216,6 +292,13 @@ impl Component for DiscographyPage {
                 };
                 let artist = self.artist.clone();
                 self.show(services, artist, view, &sender);
+            }
+            DiscographyAction::Search(query) => {
+                let query = query.trim().to_owned();
+                if query != self.query {
+                    self.query = query;
+                    self.reload(&sender);
+                }
             }
             DiscographyAction::LoadMore => self.load_more(&sender),
             DiscographyAction::PlayTrack(index) => {
@@ -246,10 +329,10 @@ impl Component for DiscographyPage {
                     self.releases(request, &releases, total, next.is_none(), &sender);
                 }
             }
-            DiscographyCmd::Songs(request, tracks, next) => {
+            DiscographyCmd::Songs(request, tracks, total, next) => {
                 if request == *self.requests.borrow() {
                     self.page_loaded(next);
-                    self.songs(request, &tracks, next.is_none(), &sender);
+                    self.songs(request, &tracks, total, next.is_none(), &sender);
                 }
             }
             DiscographyCmd::Image(request, key, path) => {
@@ -289,25 +372,14 @@ impl DiscographyPage {
         view: View,
         sender: &ComponentSender<Self>,
     ) {
-        let request = (*self.requests.borrow()).wrapping_add(1);
-        self.requests.send_replace(request);
+        let artist_changed = self.artist.uri != artist.uri;
         self.artist = artist;
         self.view = view;
-        self.owner.set_text(&self.artist.name);
-        self.title.set_text(view.title());
-        self.scroll.vadjustment().set_value(0.0);
-        self.uris.clear();
-        self.rows.clear();
-        self.thumbs.clear();
-        self.release_count = 0;
-        self.next_offset = Some(0);
-        self.loading = false;
-        self.release_grid = None;
-        self.song_list = None;
-        self.load_more.set_visible(false);
-        while let Some(child) = self.body.first_child() {
-            self.body.remove(&child);
+        if artist_changed {
+            self.query.clear();
+            self.search.set_text("");
         }
+        self.owner.set_text(&self.artist.name);
         for (index, chip) in self.chips.iter().enumerate() {
             let active = GROUPS
                 .get(index)
@@ -336,6 +408,26 @@ impl DiscographyPage {
         }
 
         self.services = Some(services);
+        self.reload(sender);
+    }
+
+    fn reload(&mut self, sender: &ComponentSender<Self>) {
+        let request = (*self.requests.borrow()).wrapping_add(1);
+        self.requests.send_replace(request);
+        self.title.set_text(self.view.title());
+        self.scroll.vadjustment().set_value(0.0);
+        self.uris.clear();
+        self.rows.clear();
+        self.thumbs.clear();
+        self.release_count = 0;
+        self.next_offset = Some(0);
+        self.loading = false;
+        self.release_grid = None;
+        self.song_list = None;
+        self.load_more.set_visible(false);
+        while let Some(child) = self.body.first_child() {
+            self.body.remove(&child);
+        }
         self.load_more(sender);
     }
 
@@ -364,6 +456,7 @@ impl DiscographyPage {
         let session = services.session.clone();
         let uri = self.artist.uri.clone();
         let view = self.view;
+        let query = self.query.clone();
         let mut requests = self.requests.subscribe();
         sender.command(move |out, shutdown| {
             shutdown
@@ -371,7 +464,9 @@ impl DiscographyPage {
                     match view {
                         View::Releases(group) => {
                             tokio::select! {
-                                result = metadata::discography_page(&session, &uri, group, Some(offset)) => {
+                                result = metadata::discography_search_page(
+                                    &session, &uri, group, &query, Some(offset),
+                                ) => {
                                     let message = match result {
                                         Ok((releases, total, next)) => DiscographyCmd::Releases(
                                             request, releases, total, next,
@@ -387,10 +482,12 @@ impl DiscographyPage {
                         }
                         View::Songs => {
                             tokio::select! {
-                                result = metadata::artist_track_page(&session, &uri, Some(offset)) => {
+                                result = metadata::artist_track_search_page(
+                                    &session, &uri, &query, Some(offset),
+                                ) => {
                                     let message = match result {
-                                        Ok((tracks, next)) => {
-                                            DiscographyCmd::Songs(request, tracks, next)
+                                        Ok((tracks, total, next)) => {
+                                            DiscographyCmd::Songs(request, tracks, total, next)
                                         }
                                         Err(error) => DiscographyCmd::Failed(
                                             request, format!("songs: {error}"),
@@ -424,7 +521,7 @@ impl DiscographyPage {
         sender: &ComponentSender<Self>,
     ) {
         if releases.is_empty() && self.release_count == 0 && done {
-            self.empty("Nothing here yet.");
+            self.empty_results();
             return;
         }
         self.release_count += releases.len();
@@ -501,11 +598,12 @@ impl DiscographyPage {
         &mut self,
         request: u64,
         tracks: &[TrackInfo],
+        total: usize,
         done: bool,
         sender: &ComponentSender<Self>,
     ) {
         if tracks.is_empty() && self.uris.is_empty() && done {
-            self.empty("Nothing here yet.");
+            self.empty_results();
             return;
         }
 
@@ -596,8 +694,17 @@ impl DiscographyPage {
                 .push((track.uri.clone(), button.clone().upcast(), track_play));
             list.append(&button);
         }
-        self.title.set_text(&format!("Songs · {}", self.uris.len()));
+        self.title
+            .set_text(&format!("Songs · {}", total.max(self.uris.len())));
         self.sync_playback();
+    }
+
+    fn empty_results(&self) {
+        if self.query.is_empty() {
+            self.empty("Nothing here yet.");
+        } else {
+            self.empty(&format!("No matches for “{}”.", self.query));
+        }
     }
 
     fn empty(&self, message: &str) {

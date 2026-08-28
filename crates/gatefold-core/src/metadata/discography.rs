@@ -6,7 +6,10 @@ use std::{
 use anyhow::Result;
 use librespot::core::Session;
 
-use crate::model::{AlbumRef, ReleaseGroup, TrackInfo};
+use crate::{
+    local_search,
+    model::{AlbumRef, ReleaseGroup, TrackInfo},
+};
 
 const PAGE: usize = 50;
 
@@ -32,12 +35,30 @@ pub async fn discography_page(
     group: ReleaseGroup,
     offset: Option<usize>,
 ) -> Result<(Vec<AlbumRef>, usize, Option<usize>)> {
-    let releases = releases(session, uri, group).await?;
-    let offset = offset.unwrap_or_default().min(releases.len());
-    let end = (offset + PAGE).min(releases.len());
-    let next = (end < releases.len()).then_some(end);
+    discography_search_page(session, uri, group, "", offset).await
+}
 
-    Ok((releases[offset..end].to_vec(), releases.len(), next))
+pub async fn discography_search_page(
+    session: &Session,
+    uri: &str,
+    group: ReleaseGroup,
+    query: &str,
+    offset: Option<usize>,
+) -> Result<(Vec<AlbumRef>, usize, Option<usize>)> {
+    let releases = releases(session, uri, group).await?;
+    let ranked = local_search::ranked_indices(releases.as_ref(), query);
+    let offset = offset.unwrap_or_default().min(ranked.len());
+    let end = (offset + PAGE).min(ranked.len());
+    let next = (end < ranked.len()).then_some(end);
+
+    Ok((
+        ranked[offset..end]
+            .iter()
+            .map(|index| releases[*index].clone())
+            .collect(),
+        ranked.len(),
+        next,
+    ))
 }
 
 pub async fn artist_tracks(session: &Session, uri: &str) -> Result<Vec<TrackInfo>> {
@@ -49,12 +70,30 @@ pub async fn artist_track_page(
     uri: &str,
     offset: Option<usize>,
 ) -> Result<(Vec<TrackInfo>, Option<usize>)> {
-    let tracks = tracks(session, uri).await?;
-    let offset = offset.unwrap_or_default().min(tracks.len());
-    let end = (offset + PAGE).min(tracks.len());
-    let next = (end < tracks.len()).then_some(end);
+    let (tracks, _, next) = artist_track_search_page(session, uri, "", offset).await?;
+    Ok((tracks, next))
+}
 
-    Ok((tracks[offset..end].to_vec(), next))
+pub async fn artist_track_search_page(
+    session: &Session,
+    uri: &str,
+    query: &str,
+    offset: Option<usize>,
+) -> Result<(Vec<TrackInfo>, usize, Option<usize>)> {
+    let tracks = tracks(session, uri).await?;
+    let ranked = local_search::ranked_indices(tracks.as_ref(), query);
+    let offset = offset.unwrap_or_default().min(ranked.len());
+    let end = (offset + PAGE).min(ranked.len());
+    let next = (end < ranked.len()).then_some(end);
+
+    Ok((
+        ranked[offset..end]
+            .iter()
+            .map(|index| tracks[*index].clone())
+            .collect(),
+        ranked.len(),
+        next,
+    ))
 }
 
 async fn releases(session: &Session, uri: &str, group: ReleaseGroup) -> Result<Arc<Vec<AlbumRef>>> {

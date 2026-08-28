@@ -12,7 +12,10 @@ use std::collections::{HashMap, HashSet};
 
 pub use album::album;
 pub use artist::{artist, artist_albums};
-pub use discography::{artist_track_page, artist_tracks, discography, discography_page};
+pub use discography::{
+    artist_track_page, artist_track_search_page, artist_tracks, discography, discography_page,
+    discography_search_page,
+};
 pub use playlist::{cached_playlists, playlist, playlist_uris, playlists};
 pub use search::search;
 pub use track::{cover, track};

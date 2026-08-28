@@ -23,6 +23,20 @@
     letter-spacing: -0.4px;
 }
 
+.discography-controls {
+    margin-bottom: 8px;
+}
+
+entry.discography-search {
+    min-height: 32px;
+    padding: 0 10px 0 12px;
+    font-size: 9.5pt;
+}
+
+entry.discography-search image {
+    margin-right: 8px;
+}
+
 .discography-empty {
     color: @on_surface_dim;
     margin-top: 20px;
