@@ -41,6 +41,16 @@ paned.gatefold > separator {
     color: @primary;
 }
 
+.page-owner link,
+.page-owner link:visited {
+    color: @primary;
+    text-decoration: none;
+}
+
+.page-owner link:hover {
+    color: @on_surface;
+}
+
 .page-detail {
     color: @on_surface_dim;
 }

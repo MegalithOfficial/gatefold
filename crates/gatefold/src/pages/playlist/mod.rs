@@ -7,7 +7,7 @@ use gatefold_core::{
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw::prelude::*, gtk};
 
-use crate::{app::Services, skeleton::track_row};
+use crate::{app::Services, artists, skeleton::track_row};
 
 pub const CSS: &str = include_str!("style.css");
 
@@ -23,6 +23,7 @@ pub struct PlaylistPage {
     active_queue: bool,
     is_playing: bool,
     uris: Vec<String>,
+    artists: Vec<ArtistRef>,
     cover_ids: Vec<Option<String>>,
     rows: Vec<(String, gtk::Widget, gtk::Image)>,
     thumbs: Vec<(String, gtk::Image)>,
@@ -45,6 +46,7 @@ pub enum PlaylistAction {
     ShufflePlay,
     PlayFrom(usize),
     OpenArtist(Box<ArtistRef>),
+    OpenOwner(String),
 }
 
 #[derive(Debug)]
@@ -62,6 +64,7 @@ impl std::fmt::Debug for PlaylistAction {
             PlaylistAction::ShufflePlay => write!(f, "ShufflePlay"),
             PlaylistAction::PlayFrom(index) => write!(f, "PlayFrom({index})"),
             PlaylistAction::OpenArtist(artist) => write!(f, "OpenArtist({})", artist.name),
+            PlaylistAction::OpenOwner(uri) => write!(f, "OpenOwner({uri})"),
         }
     }
 }
@@ -130,6 +133,13 @@ impl Component for PlaylistPage {
         owner.add_css_class("page-owner");
         owner.set_xalign(0.0);
         owner.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        owner.connect_activate_link({
+            let open = sender.input_sender().clone();
+            move |_, uri| {
+                open.emit(PlaylistAction::OpenOwner(uri.to_owned()));
+                gtk::glib::Propagation::Stop
+            }
+        });
         meta.append(&owner);
         let detail = gtk::Label::new(None);
         detail.add_css_class("page-detail");
@@ -326,6 +336,7 @@ impl Component for PlaylistPage {
             active_queue: false,
             is_playing: false,
             uris: Vec::new(),
+            artists: Vec::new(),
             cover_ids: Vec::new(),
             rows: Vec::new(),
             thumbs: Vec::new(),
@@ -353,6 +364,11 @@ impl Component for PlaylistPage {
             PlaylistAction::PlayFrom(index) => self.play_from(index, &sender),
             PlaylistAction::OpenArtist(artist) => {
                 let _ = sender.output(PlaylistOutput::OpenArtist(artist));
+            }
+            PlaylistAction::OpenOwner(uri) => {
+                if let Some(artist) = self.artists.iter().find(|artist| artist.uri == uri) {
+                    let _ = sender.output(PlaylistOutput::OpenArtist(Box::new(artist.clone())));
+                }
             }
         }
     }
@@ -477,6 +493,7 @@ impl PlaylistPage {
         self.active_queue = false;
         self.refresh_play_button();
         self.uris.clear();
+        self.artists.clear();
         self.cover_ids.clear();
         self.rows.clear();
         self.thumbs.clear();
@@ -745,7 +762,9 @@ impl PlaylistPage {
             .map(|artist| artist.name.clone())
             .collect::<Vec<_>>()
             .join(", ");
-        self.owner.set_text(&owner);
+        self.owner.set_markup(&artists::markup(&info.artists));
+        self.owner.set_focusable(false);
+        self.artists = info.artists.clone();
         let artist_uri = info.artists.first().map(|artist| artist.uri.clone());
         let year = info.year;
         let label = info.label.clone();
