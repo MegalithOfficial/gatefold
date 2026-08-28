@@ -365,15 +365,10 @@ impl SearchPage {
                 name.set_xalign(0.0);
                 name.set_ellipsize(gtk::pango::EllipsizeMode::End);
                 text.append(&name);
-                let artists: Vec<&str> = track
-                    .artists
-                    .iter()
-                    .map(|artist| artist.name.as_str())
-                    .collect();
-                let artists = gtk::Label::new(Some(&artists.join(", ")));
-                artists.add_css_class("track-artists");
-                artists.set_xalign(0.0);
-                artists.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                let open = sender.input_sender().clone();
+                let artists = crate::artists::label(&track.artists, move |artist| {
+                    open.emit(SearchAction::OpenArtist(Box::new(artist), None));
+                });
                 text.append(&artists);
                 row.append(&text);
 

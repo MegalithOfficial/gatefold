@@ -177,6 +177,16 @@ paned.gatefold > separator {
     color: @on_surface_dim;
 }
 
+.track-artists link,
+.track-artists link:visited {
+    color: @on_surface_dim;
+    text-decoration: none;
+}
+
+.track-artists link:hover {
+    color: @on_surface;
+}
+
 .track.playing {
     background: @primary_dim;
 }
@@ -187,8 +197,14 @@ paned.gatefold > separator {
     color: @on_primary_dim;
 }
 
-.track.playing .track-artists {
+.track.playing .track-artists,
+.track.playing .track-artists link,
+.track.playing .track-artists link:visited {
     color: alpha(@on_primary_dim, 0.75);
+}
+
+.track.playing .track-artists link:hover {
+    color: @on_primary_dim;
 }
 
 .track.playing .track-play {

@@ -2,7 +2,7 @@ use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc};
 
 use gatefold_core::{
     images, metadata,
-    model::{AlbumInfo, AlbumRef, PlaylistInfo, PlaylistRef},
+    model::{AlbumInfo, AlbumRef, ArtistRef, PlaylistInfo, PlaylistRef},
     player, session,
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw::prelude::*, gtk};
@@ -44,12 +44,14 @@ pub enum PlaylistAction {
     Primary,
     ShufflePlay,
     PlayFrom(usize),
+    OpenArtist(Box<ArtistRef>),
 }
 
 #[derive(Debug)]
 pub enum PlaylistOutput {
     Cover(std::path::PathBuf),
     Open(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>),
 }
 
 impl std::fmt::Debug for PlaylistAction {
@@ -59,6 +61,7 @@ impl std::fmt::Debug for PlaylistAction {
             PlaylistAction::Primary => write!(f, "Primary"),
             PlaylistAction::ShufflePlay => write!(f, "ShufflePlay"),
             PlaylistAction::PlayFrom(index) => write!(f, "PlayFrom({index})"),
+            PlaylistAction::OpenArtist(artist) => write!(f, "OpenArtist({})", artist.name),
         }
     }
 }
@@ -348,6 +351,9 @@ impl Component for PlaylistPage {
             PlaylistAction::Primary => self.primary(&sender),
             PlaylistAction::ShufflePlay => self.play(0, true, &sender),
             PlaylistAction::PlayFrom(index) => self.play_from(index, &sender),
+            PlaylistAction::OpenArtist(artist) => {
+                let _ = sender.output(PlaylistOutput::OpenArtist(artist));
+            }
         }
     }
 
@@ -726,15 +732,10 @@ impl PlaylistPage {
             name.set_xalign(0.0);
             name.set_ellipsize(gtk::pango::EllipsizeMode::End);
             text.append(&name);
-            let artists: Vec<&str> = track
-                .artists
-                .iter()
-                .map(|artist| artist.name.as_str())
-                .collect();
-            let artists = gtk::Label::new(Some(&artists.join(", ")));
-            artists.add_css_class("track-artists");
-            artists.set_xalign(0.0);
-            artists.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            let open = sender.input_sender().clone();
+            let artists = crate::artists::label(&track.artists, move |artist| {
+                open.emit(PlaylistAction::OpenArtist(Box::new(artist)));
+            });
             text.append(&artists);
             row.append(&text);
 

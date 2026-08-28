@@ -170,6 +170,7 @@ impl Component for App {
                 .forward(sender.input_sender(), |output| match output {
                     PlaylistOutput::Cover(path) => AppAction::Cover(path),
                     PlaylistOutput::Open(playlist) => AppAction::OpenPlaylist(playlist),
+                    PlaylistOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
                 }),
             search: SearchPage::builder()
                 .launch(())
@@ -193,7 +194,10 @@ impl Component for App {
                 }),
             discography: DiscographyPage::builder().launch(()).forward(
                 sender.input_sender(),
-                |DiscographyOutput::OpenAlbum(album)| AppAction::OpenPlaylist(album),
+                |output| match output {
+                    DiscographyOutput::OpenAlbum(album) => AppAction::OpenPlaylist(album),
+                    DiscographyOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
+                },
             ),
             deck: Deck::builder()
                 .launch(())

@@ -1,4 +1,5 @@
 mod app;
+mod artists;
 mod components;
 mod css;
 mod pages;

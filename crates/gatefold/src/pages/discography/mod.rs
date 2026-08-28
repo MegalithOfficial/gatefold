@@ -70,6 +70,7 @@ pub enum DiscographyAction {
     LoadMore,
     PlayTrack(usize),
     OpenAlbum(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>),
 }
 
 impl std::fmt::Debug for DiscographyAction {
@@ -83,6 +84,7 @@ impl std::fmt::Debug for DiscographyAction {
             DiscographyAction::LoadMore => f.write_str("LoadMore"),
             DiscographyAction::PlayTrack(index) => write!(f, "PlayTrack({index})"),
             DiscographyAction::OpenAlbum(album) => write!(f, "OpenAlbum({})", album.name),
+            DiscographyAction::OpenArtist(artist) => write!(f, "OpenArtist({})", artist.name),
         }
     }
 }
@@ -90,6 +92,7 @@ impl std::fmt::Debug for DiscographyAction {
 #[derive(Debug)]
 pub enum DiscographyOutput {
     OpenAlbum(Box<PlaylistRef>),
+    OpenArtist(Box<ArtistRef>),
 }
 
 #[derive(Debug)]
@@ -312,6 +315,9 @@ impl Component for DiscographyPage {
             }
             DiscographyAction::OpenAlbum(album) => {
                 let _ = sender.output(DiscographyOutput::OpenAlbum(album));
+            }
+            DiscographyAction::OpenArtist(artist) => {
+                let _ = sender.output(DiscographyOutput::OpenArtist(artist));
             }
         }
     }
@@ -662,15 +668,10 @@ impl DiscographyPage {
             name.set_xalign(0.0);
             name.set_ellipsize(gtk::pango::EllipsizeMode::End);
             text.append(&name);
-            let artists: Vec<&str> = track
-                .artists
-                .iter()
-                .map(|artist| artist.name.as_str())
-                .collect();
-            let artists = gtk::Label::new(Some(&artists.join(", ")));
-            artists.add_css_class("track-artists");
-            artists.set_xalign(0.0);
-            artists.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            let open = sender.input_sender().clone();
+            let artists = crate::artists::label(&track.artists, move |artist| {
+                open.emit(DiscographyAction::OpenArtist(Box::new(artist)));
+            });
             text.append(&artists);
             row.append(&text);
 
