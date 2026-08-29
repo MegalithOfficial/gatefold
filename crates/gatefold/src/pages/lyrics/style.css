@@ -49,6 +49,13 @@
     opacity: 1;
 }
 
+.lyrics-source-head {
+    font-size: 9pt;
+    font-weight: 600;
+    color: @on_surface_dim;
+    padding: 6px 10px 8px;
+}
+
 .lyrics-sheet {
     padding: 72px 42px 240px;
 }

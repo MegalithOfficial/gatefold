@@ -8,8 +8,9 @@ use std::{
 };
 
 use gatefold_core::{
-    lyrics::{self, Lyrics, Request, Sync},
+    lyrics::{self, Lyrics, Provider, Request, Sync},
     player,
+    settings::Settings,
 };
 use relm4::{
     Component, ComponentParts, ComponentSender, RelmWidgetExt,
@@ -35,6 +36,7 @@ pub struct LyricsPage {
     candidates: Vec<Lyrics>,
     chosen: usize,
     romanized: bool,
+    settings: Settings,
     sheet: Rc<RefCell<Sheet>>,
     states: gtk::Stack,
     backdrop: Backdrop,
@@ -69,6 +71,7 @@ pub enum LyricsAction {
     Romanize(bool),
     Source(usize),
     Resync,
+    Backdrop(bool),
 }
 
 impl std::fmt::Debug for LyricsAction {
@@ -80,6 +83,7 @@ impl std::fmt::Debug for LyricsAction {
             LyricsAction::Romanize(on) => write!(formatter, "Romanize({on})"),
             LyricsAction::Source(index) => write!(formatter, "Source({index})"),
             LyricsAction::Resync => write!(formatter, "Resync"),
+            LyricsAction::Backdrop(on) => write!(formatter, "Backdrop({on})"),
         }
     }
 }
@@ -103,11 +107,14 @@ impl Component for LyricsPage {
             add_css_class: "lyrics-page",
 
             #[local_ref]
-            backdrop -> Backdrop {},
+            backdrop -> Backdrop {
+                #[watch]
+                set_visible: model.settings.lyrics_backdrop,
+            },
 
             add_overlay = &gtk::Box {
                 #[watch]
-                set_visible: model.state != State::Idle,
+                set_visible: model.state != State::Idle && model.settings.lyrics_backdrop,
                 add_css_class: "lyrics-scrim",
             },
 
@@ -125,9 +132,22 @@ impl Component for LyricsPage {
                 set_spacing: 4,
                 add_css_class: "lyrics-tools",
 
+                gtk::ToggleButton {
+                    set_icon_name: "gatefold-palette-symbolic",
+                    set_tooltip_text: Some("Cover colours"),
+                    set_focus_on_click: false,
+                    set_active: model.settings.lyrics_backdrop,
+                    add_css_class: "icon",
+                    #[watch]
+                    set_visible: model.state != State::Idle,
+                    connect_toggled[sender] => move |button| {
+                        sender.input(LyricsAction::Backdrop(button.is_active()));
+                    },
+                },
+
                 #[local_ref]
                 romanize -> gtk::ToggleButton {
-                    set_icon_name: "font-x-generic-symbolic",
+                    set_icon_name: "gatefold-romanize-symbolic",
                     set_tooltip_text: Some("Romanize"),
                     set_focus_on_click: false,
                     add_css_class: "icon",
@@ -140,11 +160,11 @@ impl Component for LyricsPage {
 
                 #[local_ref]
                 sources -> gtk::MenuButton {
-                    set_icon_name: "view-more-symbolic",
+                    set_icon_name: "gatefold-sources-symbolic",
                     set_tooltip_text: Some("Lyrics source"),
                     set_focus_on_click: false,
                     #[watch]
-                    set_visible: model.candidates.len() > 1,
+                    set_visible: matches!(model.state, State::Sheet | State::Missing),
                 },
             },
 
@@ -191,7 +211,7 @@ impl Component for LyricsPage {
             hold: None,
             settle: None,
             motion: None,
-            resync: gtk::Button::from_icon_name("go-down-symbolic"),
+            resync: gtk::Button::from_icon_name("gatefold-down-symbolic"),
         }));
         body.add_tick_callback({
             let sheet = sheet.clone();
@@ -231,13 +251,19 @@ impl Component for LyricsPage {
         empty.add_css_class("lyrics-empty");
 
         let source_rows = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        source_rows.set_width_request(220);
+        let source_head = gtk::Label::new(Some("Lyrics source"));
+        source_head.set_xalign(0.0);
+        source_head.add_css_class("lyrics-source-head");
+        let source_sheet = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        source_sheet.set_width_request(220);
+        source_sheet.append(&source_head);
+        source_sheet.append(&source_rows);
         let menu = gtk::Popover::new();
         menu.set_has_arrow(false);
         menu.set_offset(0, 6);
         menu.remove_css_class("background");
         menu.add_css_class("quick-menu");
-        menu.set_child(Some(&source_rows));
+        menu.set_child(Some(&source_sheet));
         let sources = gtk::MenuButton::new();
         sources.set_popover(Some(&menu));
         sources.set_direction(gtk::ArrowType::Down);
@@ -249,6 +275,7 @@ impl Component for LyricsPage {
             candidates: Vec::new(),
             chosen: 0,
             romanized: false,
+            settings: Settings::load(),
             sheet,
             states: gtk::Stack::new(),
             backdrop: Backdrop::new(),
@@ -305,11 +332,16 @@ impl Component for LyricsPage {
                 }
             }
             LyricsAction::Resync => self.sheet.borrow_mut().resync(),
+            LyricsAction::Backdrop(on) => {
+                self.settings.lyrics_backdrop = on;
+                self.settings.save();
+            }
             LyricsAction::Source(index) => {
                 if index < self.candidates.len() && index != self.chosen {
                     self.chosen = index;
                     self.romanized = false;
                     self.romanize.set_active(false);
+                    self.menu(&sender);
                     self.show(&sender);
                 }
             }
@@ -390,6 +422,7 @@ impl Component for LyricsPage {
                 } else {
                     State::Sheet
                 };
+                self.menu(&sender);
                 self.show(&sender);
             }
         }
@@ -410,6 +443,57 @@ impl LyricsPage {
         self.candidates.get(self.chosen)
     }
 
+    fn menu(&self, sender: &ComponentSender<Self>) {
+        while let Some(row) = self.source_rows.first_child() {
+            self.source_rows.remove(&row);
+        }
+        let popover = self.sources.popover();
+        for provider in [Provider::Spotify, Provider::Amll, Provider::Lrclib] {
+            let found = self
+                .candidates
+                .iter()
+                .position(|candidate| candidate.source == provider);
+            let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+            let name = gtk::Label::new(Some(
+                found.map_or(provider.name(), |index| &self.candidates[index].attribution),
+            ));
+            name.set_xalign(0.0);
+            name.set_hexpand(true);
+            name.add_css_class("quick-name");
+            content.append(&name);
+            let note =
+                gtk::Label::new(Some(match found.map(|index| self.candidates[index].sync) {
+                    Some(Sync::Word) => "Word sync",
+                    Some(Sync::Line) => "Line sync",
+                    Some(Sync::Unsynced) => "Plain",
+                    None => "Unavailable",
+                }));
+            note.add_css_class("menu-note");
+            content.append(&note);
+            let check = gtk::Image::from_icon_name("gatefold-check-symbolic");
+            check.add_css_class("menu-check");
+            check.set_opacity(if found == Some(self.chosen) { 1.0 } else { 0.0 });
+            content.append(&check);
+            let row = gtk::Button::builder().child(&content).build();
+            row.add_css_class("quick-row");
+            row.set_focus_on_click(false);
+            row.set_sensitive(found.is_some());
+            if let Some(index) = found {
+                row.connect_clicked({
+                    let sender = sender.clone();
+                    let popover = popover.clone();
+                    move |_| {
+                        if let Some(popover) = &popover {
+                            popover.popdown();
+                        }
+                        sender.input(LyricsAction::Source(index));
+                    }
+                });
+            }
+            self.source_rows.append(&row);
+        }
+    }
+
     fn show(&mut self, sender: &ComponentSender<Self>) {
         let Some(chosen) = self.current() else {
             self.sheet.borrow_mut().load(None, sender);
@@ -423,44 +507,6 @@ impl LyricsPage {
         self.credit
             .set_label(&format!("Lyrics by {}", lyrics.attribution));
         self.sheet.borrow_mut().load(Some(lyrics), sender);
-
-        while let Some(row) = self.source_rows.first_child() {
-            self.source_rows.remove(&row);
-        }
-        let menu = self.sources.popover();
-        for (index, candidate) in self.candidates.iter().enumerate() {
-            let content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
-            let name = gtk::Label::new(Some(&candidate.attribution));
-            name.set_xalign(0.0);
-            name.set_hexpand(true);
-            name.add_css_class("quick-name");
-            content.append(&name);
-            let note = gtk::Label::new(Some(match candidate.sync {
-                Sync::Word => "Word sync",
-                Sync::Line => "Line sync",
-                Sync::Unsynced => "Plain",
-            }));
-            note.add_css_class("menu-note");
-            content.append(&note);
-            let check = gtk::Image::from_icon_name("object-select-symbolic");
-            check.add_css_class("menu-check");
-            check.set_opacity(if index == self.chosen { 1.0 } else { 0.0 });
-            content.append(&check);
-            let row = gtk::Button::builder().child(&content).build();
-            row.add_css_class("quick-row");
-            row.set_focus_on_click(false);
-            row.connect_clicked({
-                let sender = sender.clone();
-                let menu = menu.clone();
-                move |_| {
-                    if let Some(menu) = &menu {
-                        menu.popdown();
-                    }
-                    sender.input(LyricsAction::Source(index));
-                }
-            });
-            self.source_rows.append(&row);
-        }
     }
 }
 
@@ -758,25 +804,27 @@ impl Sheet {
         {
             let below = bounds.y() as f64 > self.scroll.vadjustment().page_size() * ANCHOR;
             self.resync.set_icon_name(if below {
-                "go-down-symbolic"
+                "gatefold-down-symbolic"
             } else {
-                "go-up-symbolic"
+                "gatefold-up-symbolic"
             });
         }
         if let Some(animate) = self.settle
-            && self.body.height() > 0
+            && self.follow(animate)
         {
             self.settle = None;
-            self.follow(animate);
         }
     }
 
-    fn follow(&mut self, animate: bool) {
+    fn follow(&mut self, animate: bool) -> bool {
         let Some(line) = self.active.and_then(|index| self.lines.get(index)) else {
-            return;
+            return true;
         };
+        if line.height() == 0 {
+            return false;
+        }
         let Some(bounds) = line.compute_bounds(&self.scroll) else {
-            return;
+            return false;
         };
         let adjustment = self.scroll.vadjustment();
         let page = adjustment.page_size();
@@ -791,7 +839,7 @@ impl Sheet {
         }
         if !animate {
             adjustment.set_value(target);
-            return;
+            return true;
         }
         let motion = adw::TimedAnimation::new(
             &self.scroll,
@@ -803,6 +851,7 @@ impl Sheet {
         motion.set_easing(adw::Easing::EaseOutCubic);
         motion.play();
         self.motion = Some(motion);
+        true
     }
 
     fn resync(&mut self) {

@@ -336,7 +336,7 @@ impl Component for Deck {
                 },
 
                 gtk::Button {
-                    set_icon_name: "format-justify-left-symbolic",
+                    set_icon_name: "gatefold-lyrics-symbolic",
                     set_tooltip_text: Some("Lyrics"),
                     #[watch]
                     set_class_active: ("active", model.lyrics_open),
