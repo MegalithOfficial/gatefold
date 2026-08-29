@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: dnf install -y gcc gtk4-devel libadwaita-devel alsa-lib-devel openssl-devel pkgconf rustup
-      - run: rustup-init -y --default-toolchain stable --profile minimal
+      - run: rustup-init -y --default-toolchain stable --profile minimal --component rustfmt
       - run: |
           source "$HOME/.cargo/env"
           cargo fmt --check
