@@ -117,6 +117,7 @@ pub struct Playback {
     queue: Arc<Mutex<Queue>>,
     repeat: Mutex<Repeat>,
     playing: AtomicBool,
+    stopped: AtomicBool,
     position_ms: AtomicU32,
     load_epoch: Arc<AtomicU64>,
     runtime: tokio::runtime::Handle,
@@ -144,6 +145,7 @@ pub fn start(session: Session) -> Result<Arc<Playback>> {
         queue: Arc::new(Mutex::new(Queue::default())),
         repeat: Mutex::new(Repeat::Off),
         playing: AtomicBool::new(false),
+        stopped: AtomicBool::new(false),
         position_ms: AtomicU32::new(0),
         load_epoch: Arc::new(AtomicU64::new(0)),
         runtime: tokio::runtime::Handle::current(),
@@ -318,7 +320,11 @@ impl Playback {
     }
 
     pub fn play(&self) {
-        self.player().play();
+        if self.stopped.load(Ordering::Relaxed) {
+            self.load_current();
+        } else {
+            self.player().play();
+        }
     }
 
     pub fn pause(&self) {
@@ -471,9 +477,12 @@ impl Playback {
 
     fn handle(&self, event: PlayerEvent) {
         match event {
-            PlayerEvent::Loading { track_id, .. } => self.emit(Event::Loading {
-                uri: uri_string(&track_id),
-            }),
+            PlayerEvent::Loading { track_id, .. } => {
+                self.stopped.store(false, Ordering::Relaxed);
+                self.emit(Event::Loading {
+                    uri: uri_string(&track_id),
+                });
+            }
             PlayerEvent::Playing {
                 track_id,
                 position_ms,
@@ -578,6 +587,7 @@ impl Playback {
             PlayerEvent::VolumeChanged { volume } => self.emit(Event::Volume { volume }),
             PlayerEvent::Stopped { .. } => {
                 self.playing.store(false, Ordering::Relaxed);
+                self.stopped.store(true, Ordering::Relaxed);
                 self.emit(Event::Stopped);
             }
             _ => {}
