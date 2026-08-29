@@ -10,10 +10,22 @@ use crate::auth;
 
 const CONCURRENCY: usize = 32;
 const USER_AGENT: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
+const API_USER_AGENT: &str = concat!(
+    "Gatefold/",
+    env!("CARGO_PKG_VERSION"),
+    " (+https://github.com/MegalithOfficial/gatefold)"
+);
 const RETRIES: u32 = 3;
 
 static PERMITS: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(CONCURRENCY));
 static WEB_API: LazyLock<reqwest::Client> = LazyLock::new(reqwest::Client::new);
+static PUBLIC_API: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .user_agent(API_USER_AGENT)
+        .timeout(Duration::from_secs(10))
+        .build()
+        .expect("public API client")
+});
 static WEB_API_GATE: LazyLock<tokio::sync::Mutex<()>> =
     LazyLock::new(|| tokio::sync::Mutex::new(()));
 
@@ -109,6 +121,35 @@ pub(crate) async fn partner_api(session: &Session, url: &Url) -> Result<Vec<u8>>
     )
     .await
     .context("Spotify partner request failed")
+}
+
+pub(crate) async fn public_api(url: &Url) -> Result<Option<Vec<u8>>> {
+    for attempt in 0..=RETRIES {
+        let response = fetch(|| PUBLIC_API.get(url.clone()).send())
+            .await
+            .with_context(|| format!("public API request failed: {url}"))?;
+
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt < RETRIES {
+            let wait = response
+                .headers()
+                .get(reqwest::header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(Duration::from_secs)
+                .unwrap_or(Duration::from_secs(2))
+                .max(Duration::from_secs(1));
+            tracing::warn!("public API rate limited, retrying in {wait:?}");
+            tokio::time::sleep(wait).await;
+            continue;
+        }
+
+        return Ok(Some(response.error_for_status()?.bytes().await?.to_vec()));
+    }
+
+    unreachable!("public API retry loop always returns on its final attempt")
 }
 
 pub(crate) async fn page(url: &Url) -> Result<String> {

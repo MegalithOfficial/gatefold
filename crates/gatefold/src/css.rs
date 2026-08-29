@@ -10,6 +10,7 @@ const SHEETS: &[&str] = &[
     crate::pages::artist::CSS,
     crate::pages::discography::CSS,
     crate::pages::home::CSS,
+    crate::pages::lyrics::CSS,
     crate::pages::playlist::CSS,
     crate::pages::search::CSS,
     crate::pages::welcome::CSS,

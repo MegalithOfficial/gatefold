@@ -92,7 +92,7 @@ impl Palette {
     }
 }
 
-fn to_hsv(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
+pub fn to_hsv(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
     let max = r.max(g).max(b);
     let min = r.min(g).min(b);
     let delta = max - min;
@@ -113,7 +113,7 @@ fn to_hsv(r: f64, g: f64, b: f64) -> (f64, f64, f64) {
     (hue, saturation, max)
 }
 
-fn to_rgb(hue: f64, saturation: f64, value: f64) -> (u8, u8, u8) {
+pub fn to_rgb(hue: f64, saturation: f64, value: f64) -> (u8, u8, u8) {
     let c = value * saturation;
     let x = c * (1.0 - (((hue / 60.0) % 2.0) - 1.0).abs());
     let m = value - c;

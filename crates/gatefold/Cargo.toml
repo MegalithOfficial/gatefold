@@ -8,7 +8,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-gatefold-core = { path = "../gatefold-core" }
+gatefold-core = { path = "../gatefold-core", features = ["romanization"] }
 
 anyhow.workspace = true
 tokio.workspace = true

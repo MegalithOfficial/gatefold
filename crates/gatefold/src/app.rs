@@ -24,6 +24,7 @@ use crate::{
         artist::{ArtistAction, ArtistOutput, ArtistPage},
         discography::{DiscographyAction, DiscographyOutput, DiscographyPage, View},
         home::Home,
+        lyrics::{LyricsAction, LyricsPage},
         playlist::{PlaylistAction, PlaylistOutput, PlaylistPage},
         search::{SearchAction, SearchOutput, SearchPage},
         welcome::{self, Welcome, WelcomeAction, WelcomeOutput},
@@ -62,6 +63,7 @@ pub struct App {
     topbar: Controller<Topbar>,
     rack: Controller<Rack>,
     home: Controller<Home>,
+    lyrics: Controller<LyricsPage>,
     playlist: Controller<PlaylistPage>,
     search: Controller<SearchPage>,
     artist: Controller<ArtistPage>,
@@ -81,8 +83,10 @@ pub enum AppAction {
     Forward,
     FocusSearch,
     Cover(std::path::PathBuf),
+    PlayingCover(std::path::PathBuf),
     AddAccount,
     OpenSettings,
+    ToggleLyrics,
     SignIn,
     CancelSignIn,
     CloseWelcome,
@@ -199,6 +203,7 @@ impl Component for App {
                 },
             ),
             home: Home::builder().launch(()).detach(),
+            lyrics: LyricsPage::builder().launch(()).detach(),
             playlist: PlaylistPage::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
@@ -236,14 +241,16 @@ impl Component for App {
             deck: Deck::builder().launch(()).forward(
                 sender.input_sender(),
                 |output| match output {
-                    DeckOutput::Cover(path) => AppAction::Cover(path),
+                    DeckOutput::Cover(path) => AppAction::PlayingCover(path),
                     DeckOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
+                    DeckOutput::ToggleLyrics => AppAction::ToggleLyrics,
                 },
             ),
         };
         let stage = &model.stage;
         let pages = &model.pages;
         pages.add_named(model.home.widget(), Some("home"));
+        pages.add_named(model.lyrics.widget(), Some("lyrics"));
         pages.add_named(model.playlist.widget(), Some("playlist"));
         pages.add_named(model.search.widget(), Some("search"));
         pages.add_named(model.artist.widget(), Some("artist"));
@@ -276,9 +283,21 @@ impl Component for App {
                 let palette = Palette::from_cover(&path);
                 self.css.load_from_string(&css::stylesheet(&palette));
             }
+            AppAction::PlayingCover(path) => {
+                self.lyrics.emit(LyricsAction::Cover(path.clone()));
+                sender.input(AppAction::Cover(path));
+            }
             AppAction::ToggleRack => self.rack.emit(RackAction::ToggleCollapse),
             AppAction::AddAccount => tracing::info!("add account: not wired yet"),
             AppAction::OpenSettings => self.show_welcome(),
+            AppAction::ToggleLyrics => {
+                if self.pages.visible_child_name().as_deref() == Some("lyrics") {
+                    self.land();
+                } else {
+                    self.pages.set_visible_child_name("lyrics");
+                    self.deck.emit(DeckAction::LyricsOpen(true));
+                }
+            }
             AppAction::SignIn => {
                 if self.services.is_some() {
                     self.welcome.emit(WelcomeAction::Idle);
@@ -352,6 +371,8 @@ impl Component for App {
                 self.topbar
                     .emit(TopbarAction::SetServices(services.clone()));
                 self.deck.emit(DeckAction::SetServices(services.clone()));
+                self.lyrics
+                    .emit(LyricsAction::SetServices(services.clone()));
                 self.search.emit(SearchAction::Show(services.clone()));
                 self.services = Some(services);
                 if std::env::var("GATEFOLD_OPEN").is_ok()
@@ -405,6 +426,7 @@ impl App {
     }
 
     fn land(&mut self) {
+        self.deck.emit(DeckAction::LyricsOpen(false));
         match self.history[self.position].clone() {
             Page::Home => self.pages.set_visible_child_name("home"),
             Page::Playlist(playlist) => {

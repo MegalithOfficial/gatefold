@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 pub mod auth;
 pub mod images;
 pub mod local_search;
+pub mod lyrics;
 pub mod metadata;
 pub mod model;
 pub mod net;

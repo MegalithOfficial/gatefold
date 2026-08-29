@@ -15,6 +15,7 @@ pub const CSS: &str = include_str!("style.css");
 pub enum DeckOutput {
     Cover(PathBuf),
     OpenArtist(Box<ArtistRef>),
+    ToggleLyrics,
 }
 
 pub struct Deck {
@@ -29,6 +30,7 @@ pub struct Deck {
     playing: bool,
     shuffle: bool,
     repeat: Repeat,
+    lyrics_open: bool,
     position_ms: u32,
     duration_ms: u32,
     volume: f64,
@@ -44,6 +46,8 @@ pub enum DeckAction {
     Seek(f64),
     Volume(f64),
     OpenArtist(String),
+    Lyrics,
+    LyricsOpen(bool),
 }
 
 impl std::fmt::Debug for DeckAction {
@@ -58,6 +62,8 @@ impl std::fmt::Debug for DeckAction {
             DeckAction::Seek(value) => write!(f, "Seek({value})"),
             DeckAction::Volume(value) => write!(f, "Volume({value})"),
             DeckAction::OpenArtist(uri) => write!(f, "OpenArtist({uri})"),
+            DeckAction::Lyrics => write!(f, "Lyrics"),
+            DeckAction::LyricsOpen(open) => write!(f, "LyricsOpen({open})"),
         }
     }
 }
@@ -330,9 +336,12 @@ impl Component for Deck {
                 },
 
                 gtk::Button {
-                    set_icon_name: "view-fullscreen-symbolic",
-                    set_tooltip_text: Some("Full screen"),
+                    set_icon_name: "format-justify-left-symbolic",
+                    set_tooltip_text: Some("Lyrics"),
+                    #[watch]
+                    set_class_active: ("active", model.lyrics_open),
                     add_css_class: "icon",
+                    connect_clicked => DeckAction::Lyrics,
                 },
             },
         }
@@ -355,6 +364,7 @@ impl Component for Deck {
             playing: false,
             shuffle: false,
             repeat: Repeat::Off,
+            lyrics_open: false,
             position_ms: 0,
             duration_ms: 0,
             volume: 100.0,
@@ -427,6 +437,10 @@ impl Component for Deck {
                     let _ = sender.output(DeckOutput::OpenArtist(Box::new(artist.clone())));
                 }
             }
+            DeckAction::Lyrics => {
+                let _ = sender.output(DeckOutput::ToggleLyrics);
+            }
+            DeckAction::LyricsOpen(open) => self.lyrics_open = open,
             DeckAction::SetServices(_) => {}
         }
     }

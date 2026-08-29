@@ -1,0 +1,88 @@
+.lyrics-page {
+    background: @surface_low;
+    border-radius: 28px;
+    margin: 12px 12px 0 0;
+}
+
+.lyrics-scrim {
+    background: alpha(@surface, 0.4);
+}
+
+.lyrics-tools {
+    margin: 16px 16px 0 0;
+}
+
+.lyrics-tools menubutton > button {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: none;
+    color: @on_surface_dim;
+}
+
+.lyrics-tools menubutton > button:hover {
+    background: alpha(@on_surface, 0.08);
+    color: @on_surface;
+}
+
+.lyrics-tools .icon:checked {
+    background: alpha(@on_surface, 0.12);
+    color: @on_surface;
+}
+
+.lyrics-resync {
+    margin: 0 24px 24px 0;
+    background: @surface_high;
+    color: @on_surface;
+    opacity: 0;
+    transition: opacity 220ms ease-out;
+}
+
+.lyrics-resync:hover {
+    background: @surface_top;
+}
+
+.lyrics-resync.shown {
+    opacity: 1;
+}
+
+.lyrics-sheet {
+    padding: 72px 42px 240px;
+}
+
+.lyric {
+    font-size: 26pt;
+    font-weight: 700;
+    padding: 10px 0;
+    color: alpha(@on_surface, 0.34);
+    transition: color 220ms ease-out;
+}
+
+.lyric.synced:hover {
+    color: alpha(@on_surface, 0.5);
+}
+
+.lyrics-sheet.plain .lyric {
+    color: alpha(@on_surface, 0.9);
+}
+
+.lyrics-credit {
+    margin-top: 48px;
+}
+
+.lyrics-bones {
+    padding: 72px 42px;
+}
+
+.lyrics-bone {
+    min-height: 34px;
+    margin: 10px 0;
+    border-radius: 10px;
+}
+
+.lyrics-empty {
+    color: @on_surface_dim;
+}
