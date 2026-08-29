@@ -1,15 +1,25 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Motion {
+    #[default]
+    Normal,
+    Minimal,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub lyrics_backdrop: bool,
+    pub lyrics_motion: Motion,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             lyrics_backdrop: true,
+            lyrics_motion: Motion::Normal,
         }
     }
 }

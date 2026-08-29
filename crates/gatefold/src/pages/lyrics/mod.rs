@@ -10,7 +10,7 @@ use std::{
 use gatefold_core::{
     lyrics::{self, Lyrics, Provider, Request, Sync},
     player,
-    settings::Settings,
+    settings::{Motion, Settings},
 };
 use relm4::{
     Component, ComponentParts, ComponentSender, RelmWidgetExt,
@@ -212,6 +212,7 @@ impl Component for LyricsPage {
             settle: None,
             motion: None,
             resync: gtk::Button::from_icon_name("gatefold-down-symbolic"),
+            lively: Settings::load().lyrics_motion == Motion::Normal,
         }));
         body.add_tick_callback({
             let sheet = sheet.clone();
@@ -705,6 +706,7 @@ struct Sheet {
     settle: Option<bool>,
     motion: Option<adw::TimedAnimation>,
     resync: gtk::Button,
+    lively: bool,
 }
 
 impl Sheet {
@@ -745,7 +747,7 @@ impl Sheet {
         );
         if let Some(lyrics) = &lyrics {
             for (index, line) in lyrics.lines.iter().enumerate() {
-                let lyric = Lyric::new(line, lyrics.sync == Sync::Word);
+                let lyric = Lyric::new(line, lyrics.sync == Sync::Word, self.lively);
                 if line.start_ms.is_some() || !line.words.is_empty() {
                     let click = gtk::GestureClick::new();
                     click.connect_released({
@@ -880,6 +882,16 @@ mod lyric {
     const MIN_WIDTH: i32 = 160;
     const RISE: f32 = 0.04;
     const BASE_LIFT: f64 = 0.3;
+    const WORD_RISE: f32 = 0.05;
+    const WORD_LIFT: f32 = 2.0;
+    const BLOOM: f64 = 6.0;
+    const BLOOM_ALPHA: f32 = 0.3;
+
+    pub struct Fill {
+        pub word: graphene::Rect,
+        pub lit: graphene::Rect,
+        pub done: f32,
+    }
 
     pub struct Span {
         pub start: usize,
@@ -895,6 +907,7 @@ mod lyric {
         pub lit: Cell<f64>,
         pub position_ms: Cell<u32>,
         pub fade: RefCell<Option<adw::TimedAnimation>>,
+        pub lively: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -947,12 +960,70 @@ mod lyric {
             snapshot.translate(&graphene::Point::new(0.0, mid));
             snapshot.scale(rise, rise);
             snapshot.translate(&graphene::Point::new(0.0, -mid));
-            snapshot.append_layout(&layout, &ink);
-            if words && lit > 0.0 {
-                for rect in self.fill(&layout) {
-                    snapshot.push_clip(&rect);
-                    snapshot.append_layout(&layout, &on);
+            let fills = if words && lit > 0.0 {
+                self.fill(&layout)
+            } else {
+                Vec::new()
+            };
+            let rising = fills
+                .iter()
+                .find(|fill| self.lively.get() && fill.done < 1.0);
+            match rising {
+                Some(fill) => {
+                    let (width, height) = (widget.width() as f32, widget.height() as f32);
+                    let hole = fill.word;
+                    let around = [
+                        graphene::Rect::new(0.0, 0.0, width, hole.y()),
+                        graphene::Rect::new(0.0, hole.y(), hole.x(), hole.height()),
+                        graphene::Rect::new(
+                            hole.x() + hole.width(),
+                            hole.y(),
+                            width - hole.x() - hole.width(),
+                            hole.height(),
+                        ),
+                        graphene::Rect::new(
+                            0.0,
+                            hole.y() + hole.height(),
+                            width,
+                            height - hole.y() - hole.height(),
+                        ),
+                    ];
+                    for rect in around {
+                        snapshot.push_clip(&rect);
+                        snapshot.append_layout(&layout, &ink);
+                        snapshot.pop();
+                    }
+                }
+                None => snapshot.append_layout(&layout, &ink),
+            }
+            for fill in &fills {
+                let rising = self.lively.get() && fill.done < 1.0;
+                if rising {
+                    let swell = (fill.done * std::f32::consts::PI).sin();
+                    let (cx, base) = (
+                        fill.word.x() + fill.word.width() / 2.0,
+                        fill.word.y() + fill.word.height(),
+                    );
+                    snapshot.save();
+                    snapshot.translate(&graphene::Point::new(cx, base - WORD_LIFT * swell));
+                    snapshot.scale(1.0 + WORD_RISE * swell, 1.0 + WORD_RISE * swell);
+                    snapshot.translate(&graphene::Point::new(-cx, -base));
+                    snapshot.push_clip(&fill.word);
+                    snapshot.append_layout(&layout, &ink);
                     snapshot.pop();
+                    let mut bloom = on;
+                    bloom.set_alpha(on.alpha() * BLOOM_ALPHA * swell);
+                    snapshot.push_blur(BLOOM);
+                    snapshot.push_clip(&fill.lit);
+                    snapshot.append_layout(&layout, &bloom);
+                    snapshot.pop();
+                    snapshot.pop();
+                }
+                snapshot.push_clip(&fill.lit);
+                snapshot.append_layout(&layout, &on);
+                snapshot.pop();
+                if rising {
+                    snapshot.restore();
                 }
             }
             snapshot.restore();
@@ -973,11 +1044,11 @@ mod lyric {
             1.0 + RISE * self.lit.get() as f32
         }
 
-        fn fill(&self, layout: &pango::Layout) -> Vec<graphene::Rect> {
+        fn fill(&self, layout: &pango::Layout) -> Vec<Fill> {
             let position = self.position_ms.get();
             let spans = self.spans.borrow();
             let scale = pango::SCALE as f32;
-            let mut rects = Vec::new();
+            let mut fills = Vec::new();
             let mut iter = layout.iter();
             loop {
                 let Some(line) = iter.line_readonly() else {
@@ -1001,18 +1072,22 @@ mod lyric {
                     let b = line.index_to_x(span.end.min(end) as i32, false) as f32 / scale;
                     let width = (a - b).abs() * done;
                     let x = if a <= b { a } else { a - width };
-                    rects.push(graphene::Rect::new(
-                        logical.x() as f32 / scale + x,
+                    let (left, top, height) = (
+                        logical.x() as f32 / scale,
                         logical.y() as f32 / scale,
-                        width,
                         logical.height() as f32 / scale,
-                    ));
+                    );
+                    fills.push(Fill {
+                        word: graphene::Rect::new(left + a.min(b), top, (a - b).abs(), height),
+                        lit: graphene::Rect::new(left + x, top, width, height),
+                        done,
+                    });
                 }
                 if !iter.next_line() {
                     break;
                 }
             }
-            rects
+            fills
         }
     }
 }
@@ -1024,8 +1099,9 @@ glib::wrapper! {
 }
 
 impl Lyric {
-    fn new(line: &lyrics::Line, by_word: bool) -> Self {
+    fn new(line: &lyrics::Line, by_word: bool, lively: bool) -> Self {
         let lyric: Self = glib::Object::new();
+        lyric.imp().lively.set(lively);
         let mut text = String::new();
         let spans = line
             .words
