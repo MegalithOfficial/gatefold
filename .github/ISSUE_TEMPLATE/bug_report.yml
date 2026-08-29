@@ -1,0 +1,120 @@
+name: Bug report
+description: Report something in Gatefold that is broken or behaves incorrectly
+title: "fix: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search the existing issues before continuing and remove tokens, account names and private paths from logs.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of Gatefold is affected?
+      options:
+        - Sign-in
+        - Playback or audio
+        - Library
+        - Playlist or album page
+        - Artist page
+        - Search
+        - Lyrics
+        - Interface
+        - Building
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and its impact. Include the exact error when one is shown.
+      placeholder: Gatefold displayed..., then...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Give us the shortest reliable path to the problem.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should Gatefold have done instead?
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Gatefold version or commit
+      description: Use the commit hash when running from source.
+      placeholder: 0.1.0 or b952b2c
+    validations:
+      required: true
+
+  - type: input
+    id: operating-system
+    attributes:
+      label: Operating system
+      placeholder: Arch Linux, Fedora 43, Windows 11, macOS 15
+    validations:
+      required: true
+
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop and GTK
+      description: Desktop environment or compositor and the GTK version from `pkg-config --modversion gtk4`.
+      placeholder: GNOME 50, GTK 4.22.4
+
+  - type: input
+    id: audio
+    attributes:
+      label: Audio setup
+      description: Leave blank when the issue is unrelated to playback.
+      placeholder: PipeWire, Bluetooth headphones
+
+  - type: input
+    id: track
+    attributes:
+      label: Track, album or playlist
+      description: A Spotify link when the problem depends on specific content, such as lyrics or a page that fails to load.
+      placeholder: https://open.spotify.com/track/...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Paste the relevant part of `RUST_LOG=debug cargo run`, screenshots, or a short recording. Remove tokens, usernames and private paths first.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add anything else that may help reproduce or diagnose the problem.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and did not find the same problem.
+          required: true
+        - label: I tested a current build or included the exact commit where this occurred.
+          required: true
+        - label: I removed credentials and other private information from the report and attachments.
+          required: true
