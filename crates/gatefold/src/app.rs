@@ -257,7 +257,7 @@ impl Component for App {
         pages.add_named(model.discography.widget(), Some("discography"));
 
         let icons = gtk::IconTheme::for_display(&gtk::gdk::Display::default().expect("display"));
-        icons.add_search_path(concat!(env!("CARGO_MANIFEST_DIR"), "/data/icons"));
+        icons.add_resource_path("/io/github/megalithofficial/gatefold/icons/hicolor");
         let widgets = view_output!();
         model.stage.page(&widgets.shell).set_name("shell");
         model

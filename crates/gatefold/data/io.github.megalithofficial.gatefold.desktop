@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Gatefold
+Comment=A Spotify client designed around the album art
+Exec=gatefold
+Icon=io.github.megalithofficial.gatefold
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;GTK;
+Keywords=spotify;music;player;
+StartupNotify=true

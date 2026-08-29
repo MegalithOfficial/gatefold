@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/megalithofficial/gatefold/icons">
+    <file preprocess="xml-stripblanks">hicolor/scalable/apps/io.github.megalithofficial.gatefold.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-check-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-down-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-lyrics-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-palette-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-romanize-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-sidebar-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-sources-symbolic.svg</file>
+    <file preprocess="xml-stripblanks">hicolor/scalable/actions/gatefold-up-symbolic.svg</file>
+  </gresource>
+</gresources>

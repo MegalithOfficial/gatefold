@@ -1,7 +1,7 @@
 # gatefold
 
-A Spotify client for Linux, built on GTK4 and librespot and designed around the
-album art. Needs a Spotify Premium account.
+A Spotify client built on GTK4 and librespot, designed around the album art.
+Needs a Spotify Premium account.
 
 ![Gatefold](docs/screenshot.png)
 
@@ -63,19 +63,25 @@ The goal is feature parity with the official client. Where it stands:
 
 ## Building
 
-You need Rust 1.88 or newer, GTK 4.22, libadwaita 1.9 and the ALSA and
-OpenSSL headers.
+You need Rust 1.88 or newer, GTK 4.22 and libadwaita 1.9.
 
 ```sh
 # Arch
 sudo pacman -S gtk4 libadwaita alsa-lib openssl pkgconf
 # Fedora
 sudo dnf install gtk4-devel libadwaita-devel alsa-lib-devel openssl-devel pkgconf
+# macOS
+brew install gtk4 libadwaita pkgconf
+# Windows, from an MSYS2 UCRT64 shell
+pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-rust
 ```
 
 ```sh
 cargo run --release
 ```
+
+On Linux, `just install` puts the binary, desktop file and icon under
+`~/.local` (or `$PREFIX`).
 
 ## Signing in
 

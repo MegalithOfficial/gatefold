@@ -27,6 +27,7 @@ fn main() -> Result<()> {
         gatefold_core::session::clear_authentication()?;
     }
 
+    relm4::gtk::gio::resources_register_include!("gatefold.gresource")?;
     let app = RelmApp::new(APP_ID).with_args(Vec::new());
 
     app.run::<app::App>(());

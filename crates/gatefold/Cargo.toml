@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+rust-version.workspace = true
+readme = "../../README.md"
+
+[build-dependencies]
+glib-build-tools = "0.22"
 
 [dependencies]
 gatefold-core = { path = "../gatefold-core", features = ["romanization"] }

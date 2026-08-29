@@ -1,0 +1,59 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    container: fedora:43
+    steps:
+      - uses: actions/checkout@v4
+      - run: dnf install -y gcc gtk4-devel libadwaita-devel alsa-lib-devel openssl-devel pkgconf rustup
+      - run: rustup-init -y --default-toolchain stable --profile minimal
+      - run: |
+          source "$HOME/.cargo/env"
+          cargo fmt --check
+          cargo test -p gatefold-core
+          cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gatefold-linux-x86_64
+          path: target/release/gatefold
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install gtk4 libadwaita pkgconf
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gatefold-macos-arm64
+          path: target/release/gatefold
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-gcc
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gatefold-windows-x86_64
+          path: target/release/gatefold.exe
