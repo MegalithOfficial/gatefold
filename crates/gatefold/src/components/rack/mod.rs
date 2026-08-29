@@ -279,6 +279,10 @@ impl Component for Rack {
             let menu = menu.clone();
             move |_| menu.popup()
         });
+        me.connect_destroy({
+            let menu = menu.clone();
+            move |_| menu.unparent()
+        });
         settings.connect_clicked({
             let sender = sender.input_sender().clone();
             move |_| sender.emit(RackAction::Settings)

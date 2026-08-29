@@ -161,6 +161,10 @@ impl Component for Topbar {
         let search = gtk::Entry::new();
         let quick = gtk::Popover::new();
         quick.set_parent(&search);
+        search.connect_destroy({
+            let quick = quick.clone();
+            move |_| quick.unparent()
+        });
         quick.set_position(gtk::PositionType::Bottom);
         quick.set_autohide(false);
         quick.set_has_arrow(false);
