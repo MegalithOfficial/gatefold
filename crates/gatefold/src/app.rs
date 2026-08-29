@@ -26,6 +26,7 @@ use crate::{
         home::Home,
         lyrics::{LyricsAction, LyricsPage},
         playlist::{PlaylistAction, PlaylistOutput, PlaylistPage},
+        queue::{QueueAction, QueueOutput, QueuePage},
         search::{SearchAction, SearchOutput, SearchPage},
         welcome::{self, Welcome, WelcomeAction, WelcomeOutput},
     },
@@ -65,6 +66,7 @@ pub struct App {
     home: Controller<Home>,
     lyrics: Controller<LyricsPage>,
     playlist: Controller<PlaylistPage>,
+    queue: Controller<QueuePage>,
     search: Controller<SearchPage>,
     artist: Controller<ArtistPage>,
     discography: Controller<DiscographyPage>,
@@ -87,6 +89,7 @@ pub enum AppAction {
     AddAccount,
     OpenSettings,
     ToggleLyrics,
+    OpenQueue,
     SignIn,
     CancelSignIn,
     CloseWelcome,
@@ -165,6 +168,7 @@ impl Component for App {
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
 
+        let queue_sheet = gtk::Box::new(gtk::Orientation::Vertical, 0);
         let model = App {
             css,
             services: None,
@@ -211,6 +215,13 @@ impl Component for App {
                     PlaylistOutput::Open(playlist) => AppAction::OpenPlaylist(playlist),
                     PlaylistOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
                 }),
+            queue: QueuePage::builder().launch(queue_sheet.clone()).forward(
+                sender.input_sender(),
+                |output| match output {
+                    QueueOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
+                    QueueOutput::OpenPage => AppAction::OpenQueue,
+                },
+            ),
             search: SearchPage::builder()
                 .launch(())
                 .forward(sender.input_sender(), |output| match output {
@@ -238,20 +249,20 @@ impl Component for App {
                     DiscographyOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
                 },
             ),
-            deck: Deck::builder().launch(()).forward(
-                sender.input_sender(),
-                |output| match output {
+            deck: Deck::builder()
+                .launch(queue_sheet)
+                .forward(sender.input_sender(), |output| match output {
                     DeckOutput::Cover(path) => AppAction::PlayingCover(path),
                     DeckOutput::OpenArtist(artist) => AppAction::OpenArtist(artist, None),
                     DeckOutput::ToggleLyrics => AppAction::ToggleLyrics,
-                },
-            ),
+                }),
         };
         let stage = &model.stage;
         let pages = &model.pages;
         pages.add_named(model.home.widget(), Some("home"));
         pages.add_named(model.lyrics.widget(), Some("lyrics"));
         pages.add_named(model.playlist.widget(), Some("playlist"));
+        pages.add_named(model.queue.widget(), Some("queue"));
         pages.add_named(model.search.widget(), Some("search"));
         pages.add_named(model.artist.widget(), Some("artist"));
         pages.add_named(model.discography.widget(), Some("discography"));
@@ -296,6 +307,15 @@ impl Component for App {
                 } else {
                     self.pages.set_visible_child_name("lyrics");
                     self.deck.emit(DeckAction::LyricsOpen(true));
+                    self.deck.emit(DeckAction::QueueOpen(false));
+                }
+            }
+            AppAction::OpenQueue => {
+                self.deck.emit(DeckAction::QueuePopdown);
+                if self.pages.visible_child_name().as_deref() != Some("queue") {
+                    self.pages.set_visible_child_name("queue");
+                    self.deck.emit(DeckAction::QueueOpen(true));
+                    self.deck.emit(DeckAction::LyricsOpen(false));
                 }
             }
             AppAction::SignIn => {
@@ -374,6 +394,7 @@ impl Component for App {
                 self.lyrics
                     .emit(LyricsAction::SetServices(services.clone()));
                 self.search.emit(SearchAction::Show(services.clone()));
+                self.queue.emit(QueueAction::SetServices(services.clone()));
                 self.services = Some(services);
                 if std::env::var("GATEFOLD_OPEN").is_ok()
                     && let Some(first) = metadata::cached_playlists().into_iter().next()
@@ -427,6 +448,7 @@ impl App {
 
     fn land(&mut self) {
         self.deck.emit(DeckAction::LyricsOpen(false));
+        self.deck.emit(DeckAction::QueueOpen(false));
         match self.history[self.position].clone() {
             Page::Home => self.pages.set_visible_child_name("home"),
             Page::Playlist(playlist) => {

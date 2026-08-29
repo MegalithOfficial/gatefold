@@ -12,7 +12,7 @@ The goal is feature parity with the official client. Where it stands:
 - [x] Play, pause, seek, skip, shuffle, repeat
 - [x] Volume
 - [x] Gapless playback
-- [ ] Queue, play next, add to queue
+- [x] Queue, play next, add to queue
 - [ ] Smart Shuffle
 - [ ] Crossfade
 - [ ] Mix: automatic and custom transitions in playlists

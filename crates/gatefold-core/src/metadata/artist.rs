@@ -46,8 +46,10 @@ async fn fallback(session: &Session, uri: &str) -> Result<ArtistInfo> {
     let mut all = album_uris.clone();
     all.extend(single_uris.iter().cloned());
     all.extend(compilation_uris.iter().cloned());
-    let (top_tracks, refs) =
-        tokio::join!(super::tracks(session, top), super::album_refs(session, all));
+    let (top_tracks, refs) = tokio::join!(
+        super::track_batch(session, top),
+        super::album_refs(session, all)
+    );
     let refs = refs
         .into_iter()
         .map(|album| (album.uri.clone(), album))

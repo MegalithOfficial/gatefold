@@ -37,3 +37,11 @@ pub fn label(artists: &[ArtistRef], open: impl Fn(ArtistRef) + 'static) -> gtk::
 
     label
 }
+
+pub fn names(artists: &[ArtistRef]) -> String {
+    artists
+        .iter()
+        .map(|artist| artist.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}

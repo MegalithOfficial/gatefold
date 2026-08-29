@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     sync::{
         Arc, Mutex, RwLock, Weak,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
@@ -55,6 +56,7 @@ pub enum Event {
         index: usize,
         length: usize,
     },
+    UpNextChanged,
     ShuffleChanged {
         shuffle: bool,
     },
@@ -80,20 +82,29 @@ pub enum Repeat {
 
 const RESTART_THRESHOLD_MS: u32 = 3000;
 
+#[derive(Debug, Clone, Default)]
+pub struct Snapshot {
+    pub current: Option<String>,
+    pub up_next: Vec<String>,
+    pub source: String,
+    pub ahead: Vec<String>,
+    pub ahead_from: usize,
+}
+
 #[derive(Default)]
 struct Queue {
+    source: String,
     uris: Vec<String>,
     order: Vec<usize>,
     position: usize,
     shuffled: bool,
+    up_next: VecDeque<String>,
+    detour: Option<String>,
 }
 
 impl Queue {
     fn current(&self) -> Option<String> {
-        self.order
-            .get(self.position)
-            .and_then(|&index| self.uris.get(index))
-            .cloned()
+        self.detour.clone().or_else(|| self.at(self.position))
     }
 
     fn at(&self, position: usize) -> Option<String> {
@@ -101,6 +112,11 @@ impl Queue {
             .get(position)
             .and_then(|&index| self.uris.get(index))
             .cloned()
+    }
+
+    fn take_up_next(&mut self) -> bool {
+        self.detour = self.up_next.pop_front();
+        self.detour.is_some()
     }
 }
 
@@ -261,15 +277,17 @@ impl Playback {
         }
     }
 
-    pub fn play_queue(&self, uris: Vec<String>, index: usize) {
+    pub fn play_queue(&self, source: &str, uris: Vec<String>, index: usize) {
         let length = uris.len();
         let position = index.min(length.saturating_sub(1));
         {
             let mut queue = self.queue.lock().unwrap();
+            queue.source = source.to_owned();
             queue.order = (0..length).collect();
             queue.uris = uris;
             queue.position = position;
             queue.shuffled = false;
+            queue.detour = None;
         }
         self.emit(Event::QueueChanged {
             index: position,
@@ -287,6 +305,93 @@ impl Playback {
             .collect();
 
         (ordered, queue.position)
+    }
+
+    pub fn current(&self) -> Option<String> {
+        self.queue.lock().unwrap().current()
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        let queue = self.queue.lock().unwrap();
+        let ahead_from = if queue.order.is_empty() {
+            0
+        } else {
+            queue.position + 1
+        };
+        Snapshot {
+            current: queue.current(),
+            up_next: queue.up_next.iter().cloned().collect(),
+            source: queue.source.clone(),
+            ahead: (ahead_from..queue.order.len())
+                .filter_map(|position| queue.at(position))
+                .collect(),
+            ahead_from,
+        }
+    }
+
+    pub fn play_next(&self, uris: Vec<String>) {
+        {
+            let mut queue = self.queue.lock().unwrap();
+            for uri in uris.into_iter().rev() {
+                queue.up_next.push_front(uri);
+            }
+        }
+        self.emit(Event::UpNextChanged);
+    }
+
+    pub fn add_to_queue(&self, uris: Vec<String>) {
+        self.queue.lock().unwrap().up_next.extend(uris);
+        self.emit(Event::UpNextChanged);
+    }
+
+    pub fn remove_up_next(&self, index: usize) {
+        if self.queue.lock().unwrap().up_next.remove(index).is_some() {
+            self.emit(Event::UpNextChanged);
+        }
+    }
+
+    pub fn clear_up_next(&self) {
+        self.queue.lock().unwrap().up_next.clear();
+        self.emit(Event::UpNextChanged);
+    }
+
+    pub fn play_up_next(&self, index: usize) {
+        {
+            let mut queue = self.queue.lock().unwrap();
+            if index >= queue.up_next.len() {
+                return;
+            }
+            queue.up_next.drain(..index);
+            queue.take_up_next();
+        }
+        self.emit(Event::UpNextChanged);
+        self.load_current();
+    }
+
+    pub fn jump(&self, position: usize) {
+        let length = {
+            let mut queue = self.queue.lock().unwrap();
+            if position >= queue.order.len() {
+                return;
+            }
+            queue.position = position;
+            queue.detour = None;
+            queue.order.len()
+        };
+        self.emit(Event::QueueChanged {
+            index: position,
+            length,
+        });
+        self.load_current();
+    }
+
+    fn take_up_next(&self) -> bool {
+        let taken = self.queue.lock().unwrap().take_up_next();
+        if taken {
+            self.emit(Event::UpNextChanged);
+            self.load_current();
+        }
+        taken
     }
 
     pub fn set_shuffle(&self, shuffle: bool) {
@@ -320,7 +425,10 @@ impl Playback {
     }
 
     pub fn play(&self) {
-        if self.stopped.load(Ordering::Relaxed) {
+        let idle = self.queue.lock().unwrap().current().is_none();
+        if idle {
+            self.take_up_next();
+        } else if self.stopped.load(Ordering::Relaxed) {
             self.load_current();
         } else {
             self.player().play();
@@ -346,7 +454,7 @@ impl Playback {
 
     pub fn next(&self) {
         self.demote_repeat();
-        if !self.step(1) {
+        if !self.take_up_next() && !self.step(1) {
             self.player().stop();
         }
     }
@@ -356,7 +464,10 @@ impl Playback {
             self.player().seek(0);
         } else {
             self.demote_repeat();
-            if !self.step(-1) {
+            let detoured = self.queue.lock().unwrap().detour.take().is_some();
+            if detoured {
+                self.load_current();
+            } else if !self.step(-1) {
                 self.player().seek(0);
             }
         }
@@ -394,6 +505,7 @@ impl Playback {
                 None
             } else {
                 queue.position = position as usize;
+                queue.detour = None;
                 Some((position as usize, queue.order.len()))
             }
         };
@@ -412,11 +524,13 @@ impl Playback {
         let repeat = *self.repeat.lock().unwrap();
         match repeat {
             Repeat::Track => self.load_current(),
+            _ if self.take_up_next() => {}
             Repeat::Context => {
                 if !self.step(1) {
                     let length = {
                         let mut queue = self.queue.lock().unwrap();
                         queue.position = 0;
+                        queue.detour = None;
                         queue.order.len()
                     };
                     self.emit(Event::QueueChanged { index: 0, length });
@@ -468,7 +582,10 @@ impl Playback {
     fn upcoming(&self) -> Option<String> {
         let queue = self.queue.lock().unwrap();
         queue
-            .at(queue.position + 1)
+            .up_next
+            .front()
+            .cloned()
+            .or_else(|| queue.at(queue.position + 1))
             .or_else(|| match *self.repeat.lock().unwrap() {
                 Repeat::Context => queue.at(0),
                 _ => None,
@@ -570,7 +687,7 @@ impl Playback {
                     return;
                 }
                 tracing::warn!("track unavailable, skipping: {}", uri_string(&track_id));
-                if !self.step(1) {
+                if !self.take_up_next() && !self.step(1) {
                     self.player().stop();
                 }
             }

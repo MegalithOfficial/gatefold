@@ -40,8 +40,11 @@ use crate::{
 const BATCH: usize = 50;
 const BATCH_CONCURRENCY: usize = 4;
 
-pub(crate) async fn tracks(session: &Session, uris: Vec<SpotifyUri>) -> Vec<TrackInfo> {
-    let order = strings(uris);
+pub(crate) async fn track_batch(session: &Session, uris: Vec<SpotifyUri>) -> Vec<TrackInfo> {
+    tracks(session, strings(uris)).await
+}
+
+pub async fn tracks(session: &Session, order: Vec<String>) -> Vec<TrackInfo> {
     let mut tracks = HashMap::with_capacity(order.len());
     for (uri, data) in extended(session, &order, ExtensionKind::TRACK_V4).await {
         let track = match TrackMessage::parse_from_bytes(&data)
@@ -117,7 +120,7 @@ pub(crate) async fn album_tracks(session: &Session, uris: Vec<SpotifyUri>) -> Ve
         .cloned()
         .collect();
 
-    self::tracks(session, tracks).await
+    track_batch(session, tracks).await
 }
 
 fn strings(uris: Vec<SpotifyUri>) -> Vec<String> {

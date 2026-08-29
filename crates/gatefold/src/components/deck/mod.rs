@@ -31,6 +31,8 @@ pub struct Deck {
     shuffle: bool,
     repeat: Repeat,
     lyrics_open: bool,
+    queue_open: bool,
+    queue_sheet: gtk::Popover,
     position_ms: u32,
     duration_ms: u32,
     volume: f64,
@@ -48,6 +50,9 @@ pub enum DeckAction {
     OpenArtist(String),
     Lyrics,
     LyricsOpen(bool),
+    Queue,
+    QueueOpen(bool),
+    QueuePopdown,
 }
 
 impl std::fmt::Debug for DeckAction {
@@ -64,6 +69,9 @@ impl std::fmt::Debug for DeckAction {
             DeckAction::OpenArtist(uri) => write!(f, "OpenArtist({uri})"),
             DeckAction::Lyrics => write!(f, "Lyrics"),
             DeckAction::LyricsOpen(open) => write!(f, "LyricsOpen({open})"),
+            DeckAction::Queue => write!(f, "Queue"),
+            DeckAction::QueueOpen(open) => write!(f, "QueueOpen({open})"),
+            DeckAction::QueuePopdown => write!(f, "QueuePopdown"),
         }
     }
 }
@@ -78,7 +86,7 @@ pub enum DeckUpdate {
 
 #[relm4::component(pub)]
 impl Component for Deck {
-    type Init = ();
+    type Init = gtk::Box;
     type Input = DeckAction;
     type Output = DeckOutput;
     type CommandOutput = DeckUpdate;
@@ -304,10 +312,14 @@ impl Component for Deck {
                 set_spacing: 2,
                 set_valign: gtk::Align::Center,
 
+                #[name = "queue_button"]
                 gtk::Button {
                     set_icon_name: "view-list-symbolic",
                     set_tooltip_text: Some("Queue"),
+                    #[watch]
+                    set_class_active: ("active", model.queue_open),
                     add_css_class: "icon",
+                    connect_clicked => DeckAction::Queue,
                 },
 
                 gtk::Box {
@@ -348,10 +360,17 @@ impl Component for Deck {
     }
 
     fn init(
-        _: Self::Init,
+        queue_sheet: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let popover = gtk::Popover::new();
+        popover.set_has_arrow(false);
+        popover.set_position(gtk::PositionType::Top);
+        popover.set_offset(0, -8);
+        popover.remove_css_class("background");
+        popover.add_css_class("quick-menu");
+        popover.set_child(Some(&queue_sheet));
         let model = Deck {
             services: None,
             uri: String::new(),
@@ -365,11 +384,14 @@ impl Component for Deck {
             shuffle: false,
             repeat: Repeat::Off,
             lyrics_open: false,
+            queue_open: false,
+            queue_sheet: popover,
             position_ms: 0,
             duration_ms: 0,
             volume: 100.0,
         };
         let widgets = view_output!();
+        model.queue_sheet.set_parent(&widgets.queue_button);
         let _ = (root, sender);
 
         ComponentParts { model, widgets }
@@ -441,6 +463,9 @@ impl Component for Deck {
                 let _ = sender.output(DeckOutput::ToggleLyrics);
             }
             DeckAction::LyricsOpen(open) => self.lyrics_open = open,
+            DeckAction::Queue => self.queue_sheet.popup(),
+            DeckAction::QueueOpen(open) => self.queue_open = open,
+            DeckAction::QueuePopdown => self.queue_sheet.popdown(),
             DeckAction::SetServices(_) => {}
         }
     }

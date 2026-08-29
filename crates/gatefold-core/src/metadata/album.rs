@@ -34,7 +34,7 @@ async fn fallback(session: &Session, uri: &str) -> Result<AlbumInfo> {
     let album = net::fetch(|| Album::get(session, &id)).await?;
 
     let uris: Vec<SpotifyUri> = album.tracks().cloned().collect();
-    let tracks = super::tracks(session, uris).await;
+    let tracks = super::track_batch(session, uris).await;
 
     AlbumInfo::from_album(&album, tracks).context("album has no usable uri")
 }

@@ -15,6 +15,7 @@ use relm4::{
 
 use crate::{
     app::Services,
+    menu::{self, TrackMenu},
     skeleton::{bone, track_row},
 };
 
@@ -39,6 +40,7 @@ pub enum SearchAction {
     Show(Arc<Services>),
     Query(String),
     PlayTrack(usize),
+    Enqueue(usize, TrackMenu),
     OpenPlaylist(Box<PlaylistRef>),
     OpenArtist(Box<ArtistRef>, Option<String>),
 }
@@ -49,6 +51,7 @@ impl std::fmt::Debug for SearchAction {
             SearchAction::Show(_) => write!(f, "Show"),
             SearchAction::Query(query) => write!(f, "Query({query})"),
             SearchAction::PlayTrack(index) => write!(f, "PlayTrack({index})"),
+            SearchAction::Enqueue(index, pick) => write!(f, "Enqueue({index}, {pick:?})"),
             SearchAction::OpenPlaylist(playlist) => write!(f, "OpenPlaylist({})", playlist.name),
             SearchAction::OpenArtist(artist, _) => write!(f, "OpenArtist({})", artist.name),
         }
@@ -147,6 +150,11 @@ impl Component for SearchPage {
                 self.services = Some(services);
             }
             SearchAction::Query(query) => self.run_query(query, &sender),
+            SearchAction::Enqueue(index, pick) => {
+                if let (Some(services), Some(uri)) = (&self.services, self.track_uris.get(index)) {
+                    menu::enqueue(&services.playback, uri, pick);
+                }
+            }
             SearchAction::PlayTrack(index) => self.play_from(index),
             SearchAction::OpenPlaylist(playlist) => {
                 let _ = sender.output(SearchOutput::OpenPlaylist(playlist));
@@ -446,6 +454,10 @@ impl SearchPage {
                 }
                 let play = sender.input_sender().clone();
                 button.connect_clicked(move |_| play.emit(SearchAction::PlayTrack(index)));
+                row.append(&menu::attach(&button, menu::TRACK, {
+                    let enqueue = sender.input_sender().clone();
+                    move |pick| enqueue.emit(SearchAction::Enqueue(index, pick))
+                }));
                 self.rows
                     .push((track.uri.clone(), button.clone().upcast(), track_play));
                 list.append(&button);
@@ -709,7 +721,9 @@ impl SearchPage {
             services.playback.toggle();
             return;
         }
-        services.playback.play_queue(self.track_uris.clone(), index);
+        services
+            .playback
+            .play_queue(&self.query, self.track_uris.clone(), index);
         self.active_queue = true;
         self.is_playing = true;
         if let Some(uri) = self.track_uris.get(index) {
@@ -746,11 +760,11 @@ impl SearchPage {
         let Some(services) = &self.services else {
             return;
         };
-        let (queue, index) = services.playback.queue();
+        let (queue, _) = services.playback.queue();
         self.active_queue = same_queue(&self.track_uris, &queue);
         self.is_playing = services.playback.is_playing();
-        if let Some(uri) = queue.get(index) {
-            self.playing.clone_from(uri);
+        if let Some(uri) = services.playback.current() {
+            self.playing = uri;
         }
         self.refresh_rows();
     }

@@ -12,6 +12,7 @@ use relm4::{
 
 use crate::{
     app::Services,
+    menu::{self, TrackMenu},
     pages::discography::View,
     palette::Palette,
     skeleton::{bone, track_row},
@@ -63,6 +64,7 @@ pub enum ArtistAction {
     Primary,
     Shuffle,
     PlayTrack(usize),
+    Enqueue(usize, TrackMenu),
     ToggleMore,
     Filter(usize),
     OpenPlaylist(Box<PlaylistRef>),
@@ -78,6 +80,7 @@ impl std::fmt::Debug for ArtistAction {
             ArtistAction::Primary => write!(f, "Primary"),
             ArtistAction::Shuffle => write!(f, "Shuffle"),
             ArtistAction::PlayTrack(index) => write!(f, "PlayTrack({index})"),
+            ArtistAction::Enqueue(index, pick) => write!(f, "Enqueue({index}, {pick:?})"),
             ArtistAction::ToggleMore => write!(f, "ToggleMore"),
             ArtistAction::Filter(index) => write!(f, "Filter({index})"),
             ArtistAction::OpenPlaylist(playlist) => write!(f, "OpenPlaylist({})", playlist.name),
@@ -447,6 +450,11 @@ impl Component for ArtistPage {
                 }
             }
             ArtistAction::Shuffle => self.play(0, true),
+            ArtistAction::Enqueue(index, pick) => {
+                if let (Some(services), Some(uri)) = (&self.services, self.uris.get(index)) {
+                    menu::enqueue(&services.playback, uri, pick);
+                }
+            }
             ArtistAction::PlayTrack(index) => {
                 if self.active_queue && self.uris.get(index) == Some(&self.playing) {
                     if let Some(services) = &self.services {
@@ -878,6 +886,10 @@ impl ArtistPage {
             button.add_css_class("track");
             let on_row = sender.input_sender().clone();
             button.connect_clicked(move |_| on_row.emit(ArtistAction::PlayTrack(index)));
+            row.append(&menu::attach(&button, menu::TRACK, {
+                let enqueue = sender.input_sender().clone();
+                move |pick| enqueue.emit(ArtistAction::Enqueue(index, pick))
+            }));
             if index >= 5 {
                 button.set_visible(false);
                 self.folded.push(button.clone().upcast());
@@ -1138,7 +1150,9 @@ impl ArtistPage {
         if self.uris.is_empty() {
             return;
         }
-        services.playback.play_queue(self.uris.clone(), index);
+        services
+            .playback
+            .play_queue(&self.artist.name, self.uris.clone(), index);
         services.playback.set_shuffle(shuffle);
         self.active_queue = true;
         self.is_playing = true;
@@ -1178,11 +1192,11 @@ impl ArtistPage {
         let Some(services) = &self.services else {
             return;
         };
-        let (queue, index) = services.playback.queue();
+        let (queue, _) = services.playback.queue();
         self.active_queue = same_queue(&self.uris, &queue);
         self.is_playing = services.playback.is_playing();
-        if let Some(uri) = queue.get(index) {
-            self.playing.clone_from(uri);
+        if let Some(uri) = services.playback.current() {
+            self.playing = uri;
         }
         self.refresh_rows();
         self.refresh_play_button();

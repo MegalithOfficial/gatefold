@@ -253,3 +253,29 @@ paned.gatefold > separator {
     margin-bottom: 8px;
     margin-left: 16px;
 }
+
+.track-more {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: none;
+    color: @on_surface_dim;
+    opacity: 0;
+}
+
+.track:hover .track-more,
+.track:focus-within .track-more {
+    opacity: 1;
+}
+
+.track-more:hover {
+    background: alpha(@on_surface, 0.1);
+    color: @on_surface;
+}
+
+.track.playing .track-more {
+    color: @on_primary_dim;
+}

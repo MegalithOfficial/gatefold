@@ -335,7 +335,7 @@ impl Component for Topbar {
             TopbarAction::Play(uri) => {
                 self.quick.popdown();
                 if let Some(services) = &self.services {
-                    services.playback.play_queue(vec![uri], 0);
+                    services.playback.play_queue("", vec![uri], 0);
                 }
             }
             TopbarAction::OpenPlaylist(playlist) => {

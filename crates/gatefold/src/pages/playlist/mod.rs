@@ -7,7 +7,12 @@ use gatefold_core::{
 };
 use relm4::{Component, ComponentParts, ComponentSender, adw::prelude::*, gtk};
 
-use crate::{app::Services, artists, skeleton::track_row};
+use crate::{
+    app::Services,
+    artists,
+    menu::{self, TrackMenu},
+    skeleton::track_row,
+};
 
 pub const CSS: &str = include_str!("style.css");
 
@@ -45,6 +50,7 @@ pub enum PlaylistAction {
     Primary,
     ShufflePlay,
     PlayFrom(usize),
+    Enqueue(usize, TrackMenu),
     OpenArtist(Box<ArtistRef>),
     OpenOwner(String),
 }
@@ -63,6 +69,7 @@ impl std::fmt::Debug for PlaylistAction {
             PlaylistAction::Primary => write!(f, "Primary"),
             PlaylistAction::ShufflePlay => write!(f, "ShufflePlay"),
             PlaylistAction::PlayFrom(index) => write!(f, "PlayFrom({index})"),
+            PlaylistAction::Enqueue(index, pick) => write!(f, "Enqueue({index}, {pick:?})"),
             PlaylistAction::OpenArtist(artist) => write!(f, "OpenArtist({})", artist.name),
             PlaylistAction::OpenOwner(uri) => write!(f, "OpenOwner({uri})"),
         }
@@ -361,6 +368,11 @@ impl Component for PlaylistPage {
             PlaylistAction::Show(services, playlist) => self.show(services, playlist, &sender),
             PlaylistAction::Primary => self.primary(&sender),
             PlaylistAction::ShufflePlay => self.play(0, true, &sender),
+            PlaylistAction::Enqueue(index, pick) => {
+                if let (Some(services), Some(uri)) = (&self.services, self.uris.get(index)) {
+                    menu::enqueue(&services.playback, uri, pick);
+                }
+            }
             PlaylistAction::PlayFrom(index) => self.play_from(index, &sender),
             PlaylistAction::OpenArtist(artist) => {
                 let _ = sender.output(PlaylistOutput::OpenArtist(artist));
@@ -747,6 +759,10 @@ impl PlaylistPage {
             }
             let on_row = sender.input_sender().clone();
             button.connect_clicked(move |_| on_row.emit(PlaylistAction::PlayFrom(index)));
+            row.append(&menu::attach(&button, menu::TRACK, {
+                let enqueue = sender.input_sender().clone();
+                move |pick| enqueue.emit(PlaylistAction::Enqueue(index, pick))
+            }));
             self.rows
                 .push((track.uri.clone(), button.clone().upcast(), track_play));
             self.shelf.append(&button);
@@ -941,7 +957,9 @@ impl PlaylistPage {
             return;
         }
         self.apply_track_palette(index, sender);
-        services.playback.play_queue(self.uris.clone(), index);
+        services
+            .playback
+            .play_queue(&self.title.text(), self.uris.clone(), index);
         services.playback.set_shuffle(shuffle);
         self.active_queue = true;
         self.is_playing = true;
@@ -1002,11 +1020,11 @@ impl PlaylistPage {
         let Some(services) = &self.services else {
             return;
         };
-        let (queue, index) = services.playback.queue();
+        let (queue, _) = services.playback.queue();
         self.active_queue = same_queue(&self.uris, &queue);
         self.is_playing = services.playback.is_playing();
-        if let Some(uri) = queue.get(index) {
-            self.playing.clone_from(uri);
+        if let Some(uri) = services.playback.current() {
+            self.playing = uri;
         }
         self.refresh_rows();
         self.refresh_play_button();

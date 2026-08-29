@@ -105,7 +105,7 @@ pub async fn playlist(session: &Session, uri: &str) -> Result<PlaylistInfo> {
         } => user.clone(),
         _ => String::new(),
     };
-    let tracks = super::tracks(session, uris).await;
+    let tracks = super::track_batch(session, uris).await;
 
     Ok(PlaylistInfo {
         uri: playlist.id.to_uri().context("playlist has no usable uri")?,

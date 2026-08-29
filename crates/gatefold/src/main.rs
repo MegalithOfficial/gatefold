@@ -2,6 +2,7 @@ mod app;
 mod artists;
 mod components;
 mod css;
+mod menu;
 mod pages;
 mod palette;
 mod shortcuts;

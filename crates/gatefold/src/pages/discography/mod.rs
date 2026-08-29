@@ -10,7 +10,11 @@ use relm4::{
     gtk::{self, prelude::*},
 };
 
-use crate::{app::Services, text};
+use crate::{
+    app::Services,
+    menu::{self, TrackMenu},
+    text,
+};
 
 pub const CSS: &str = include_str!("style.css");
 
@@ -69,6 +73,7 @@ pub enum DiscographyAction {
     Search(String),
     LoadMore,
     PlayTrack(usize),
+    Enqueue(usize, TrackMenu),
     OpenAlbum(Box<PlaylistRef>),
     OpenArtist(Box<ArtistRef>),
 }
@@ -83,6 +88,7 @@ impl std::fmt::Debug for DiscographyAction {
             DiscographyAction::Search(query) => write!(f, "Search({query})"),
             DiscographyAction::LoadMore => f.write_str("LoadMore"),
             DiscographyAction::PlayTrack(index) => write!(f, "PlayTrack({index})"),
+            DiscographyAction::Enqueue(index, pick) => write!(f, "Enqueue({index}, {pick:?})"),
             DiscographyAction::OpenAlbum(album) => write!(f, "OpenAlbum({})", album.name),
             DiscographyAction::OpenArtist(artist) => write!(f, "OpenArtist({})", artist.name),
         }
@@ -304,6 +310,11 @@ impl Component for DiscographyPage {
                 }
             }
             DiscographyAction::LoadMore => self.load_more(&sender),
+            DiscographyAction::Enqueue(index, pick) => {
+                if let (Some(services), Some(uri)) = (&self.services, self.uris.get(index)) {
+                    menu::enqueue(&services.playback, uri, pick);
+                }
+            }
             DiscographyAction::PlayTrack(index) => {
                 if self.active_queue && self.uris.get(index) == Some(&self.playing) {
                     if let Some(services) = &self.services {
@@ -691,6 +702,10 @@ impl DiscographyPage {
             button.add_css_class("track");
             let play = sender.input_sender().clone();
             button.connect_clicked(move |_| play.emit(DiscographyAction::PlayTrack(index)));
+            row.append(&menu::attach(&button, menu::TRACK, {
+                let enqueue = sender.input_sender().clone();
+                move |pick| enqueue.emit(DiscographyAction::Enqueue(index, pick))
+            }));
             self.rows
                 .push((track.uri.clone(), button.clone().upcast(), track_play));
             list.append(&button);
@@ -786,7 +801,9 @@ impl DiscographyPage {
         if self.uris.is_empty() {
             return;
         }
-        services.playback.play_queue(self.uris.clone(), index);
+        services
+            .playback
+            .play_queue(&self.artist.name, self.uris.clone(), index);
         self.active_queue = true;
         self.is_playing = true;
         if let Some(uri) = self.uris.get(index) {
@@ -823,11 +840,11 @@ impl DiscographyPage {
         let Some(services) = &self.services else {
             return;
         };
-        let (queue, index) = services.playback.queue();
+        let (queue, _) = services.playback.queue();
         self.active_queue = same_queue(&self.uris, &queue);
         self.is_playing = services.playback.is_playing();
-        if let Some(uri) = queue.get(index) {
-            self.playing.clone_from(uri);
+        if let Some(uri) = services.playback.current() {
+            self.playing = uri;
         }
         self.refresh_rows();
     }

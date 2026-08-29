@@ -1,0 +1,64 @@
+.queue-page {
+    background: @surface_low;
+    border-radius: 28px;
+    margin: 12px 12px 0 0;
+}
+
+.queue-column {
+    padding: 28px 24px 48px;
+}
+
+.queue-title {
+    font-size: 22pt;
+    font-weight: 500;
+    letter-spacing: -0.4px;
+    margin: 0 16px 8px;
+}
+
+.queue-empty {
+    margin: 8px 16px;
+    color: @on_surface_dim;
+}
+
+.queue-head {
+    margin: 20px 16px 6px;
+    font-size: 11pt;
+    font-weight: 600;
+}
+
+.queue-clear {
+    min-height: 28px;
+    padding: 0 12px;
+    border: none;
+    box-shadow: none;
+    border-radius: 999px;
+    background: none;
+    font-size: 9.5pt;
+    font-weight: 500;
+    color: @on_surface_dim;
+}
+
+.queue-clear:hover {
+    background: alpha(@on_surface, 0.08);
+    color: @on_surface;
+}
+
+.queue-quick .queue-quick-title {
+    margin: 4px 10px 6px;
+}
+
+.queue-quick .queue-empty {
+    margin: 4px 10px 8px;
+}
+
+.queue-quick-head {
+    margin: 10px 10px 4px;
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: @on_surface_dim;
+}
+
+.queue-quick-state {
+    margin-right: 4px;
+    color: @primary;
+}
