@@ -448,7 +448,7 @@ impl LyricsPage {
             self.source_rows.remove(&row);
         }
         let popover = self.sources.popover();
-        for provider in [Provider::Spotify, Provider::Amll, Provider::Lrclib] {
+        for provider in Provider::ALL {
             let found = self
                 .candidates
                 .iter()

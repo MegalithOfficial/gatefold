@@ -8,6 +8,7 @@ use url::Url;
 use crate::net;
 
 const LRCLIB_ENDPOINT: &str = "https://lrclib.net/api/get";
+const LRCMUX_ENDPOINT: &str = "https://api.lrcmux.dev/get";
 const SPOTIFY_TTML_ENDPOINT: &str = "https://api.amll.dev/v1/lyrics/get";
 const PROVIDER_TIMEOUT: Duration = Duration::from_secs(12);
 
@@ -30,14 +31,18 @@ pub enum Sync {
 pub enum Provider {
     Spotify,
     Amll,
+    Lrcmux,
     Lrclib,
 }
 
 impl Provider {
+    pub const ALL: [Self; 4] = [Self::Spotify, Self::Amll, Self::Lrcmux, Self::Lrclib];
+
     pub const fn name(self) -> &'static str {
         match self {
             Self::Spotify => "Spotify",
             Self::Amll => "AMLL",
+            Self::Lrcmux => "lrc mux",
             Self::Lrclib => "LRCLIB",
         }
     }
@@ -128,14 +133,16 @@ pub async fn fetch(session: &Session, request: &Request) -> Option<Lyrics> {
 }
 
 pub async fn fetch_all(session: &Session, request: &Request) -> Vec<Lyrics> {
-    let (spotify, spotify_ttml, lrclib) = tokio::join!(
+    let (spotify, spotify_ttml, lrcmux, lrclib) = tokio::join!(
         with_timeout(spotify(session, request)),
         with_timeout(ttml_by_spotify_id(request)),
+        with_timeout(lrcmux(request)),
         with_timeout(lrclib(request))
     );
     let candidates = [
         ("Spotify", spotify),
         ("Spotify ID TTML", spotify_ttml),
+        ("lrc mux", lrcmux),
         ("LRCLIB", lrclib),
     ];
 
@@ -298,6 +305,74 @@ async fn lrclib(request: &Request) -> anyhow::Result<Option<Lyrics>> {
     finish_timings(&mut lines, request.duration_ms);
     Ok((!lines.is_empty())
         .then(|| make_lyrics(Provider::Lrclib, "LRCLIB".to_owned(), None, sync, lines)))
+}
+
+async fn lrcmux(request: &Request) -> anyhow::Result<Option<Lyrics>> {
+    if request.title.is_empty() || request.artists.is_empty() {
+        return Ok(None);
+    }
+    let mut url = Url::parse(LRCMUX_ENDPOINT)?;
+    {
+        let mut query = url.query_pairs_mut();
+        query
+            .append_pair("title", &request.title)
+            .append_pair("artist", &request.artists[0])
+            .append_pair("level", "word")
+            .append_pair("strict", "true")
+            .append_pair("format", "json")
+            .append_pair("sources", "!lrclib");
+        if request.duration_ms > 0 {
+            query.append_pair("duration", &(request.duration_ms / 1000).to_string());
+        }
+    }
+
+    let Some(bytes) = net::public_api_optional(
+        &url,
+        &[
+            reqwest::StatusCode::BAD_REQUEST,
+            reqwest::StatusCode::NOT_FOUND,
+        ],
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    let response: LrcmuxResponse = serde_json::from_slice(&bytes)?;
+    Ok(parse_lrcmux(response, request.duration_ms))
+}
+
+fn parse_lrcmux(response: LrcmuxResponse, duration_ms: u32) -> Option<Lyrics> {
+    let mut lines = response
+        .lines
+        .into_iter()
+        .map(|line| Line {
+            text: line.text,
+            start_ms: line.start,
+            end_ms: line.end,
+            words: line
+                .words
+                .into_iter()
+                .map(|word| Word {
+                    text: word.text,
+                    start_ms: word.start,
+                    end_ms: word.end,
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+    if classify(&lines) != Sync::Word {
+        return None;
+    }
+    finish_timings(&mut lines, duration_ms);
+    (!lines.is_empty()).then(|| {
+        make_lyrics(
+            Provider::Lrcmux,
+            response.meta.source.name,
+            None,
+            Sync::Word,
+            lines,
+        )
+    })
 }
 
 fn make_lyrics(
@@ -646,6 +721,41 @@ struct SpotifyTtmlData {
 }
 
 #[derive(Deserialize)]
+struct LrcmuxResponse {
+    meta: LrcmuxMeta,
+    #[serde(default)]
+    lines: Vec<LrcmuxLine>,
+}
+
+#[derive(Deserialize)]
+struct LrcmuxMeta {
+    source: LrcmuxSource,
+}
+
+#[derive(Deserialize)]
+struct LrcmuxSource {
+    name: String,
+}
+
+#[derive(Deserialize)]
+struct LrcmuxLine {
+    text: String,
+    #[serde(default)]
+    start: Option<u32>,
+    #[serde(default)]
+    end: Option<u32>,
+    #[serde(default)]
+    words: Vec<LrcmuxWord>,
+}
+
+#[derive(Deserialize)]
+struct LrcmuxWord {
+    text: String,
+    start: u32,
+    end: u32,
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LrclibResponse {
     #[serde(default)]
@@ -741,6 +851,19 @@ mod tests {
         finish_timings(&mut lines, 3_000);
         assert_eq!(lines[0].words[0].end_ms, 1_600);
         assert_eq!(lines[0].words[1].end_ms, 2_200);
+    }
+
+    #[test]
+    fn parses_lrcmux_word_timestamps_and_source() {
+        let response: LrcmuxResponse = serde_json::from_str(
+            r#"{"meta":{"source":{"name":"KuGou"},"level":"word"},"lines":[{"text":"Hello world","start":1000,"end":2200,"words":[{"text":"Hello ","start":1000,"end":1600},{"text":"world","start":1600,"end":2200}]}]}"#,
+        )
+        .unwrap();
+        let lyrics = parse_lrcmux(response, 3_000).unwrap();
+        assert_eq!(lyrics.source, Provider::Lrcmux);
+        assert_eq!(lyrics.attribution, "KuGou");
+        assert_eq!(lyrics.sync, Sync::Word);
+        assert_eq!(lyrics.lines[0].words[1].start_ms, 1_600);
     }
 
     #[test]

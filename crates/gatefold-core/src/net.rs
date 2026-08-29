@@ -124,12 +124,19 @@ pub(crate) async fn partner_api(session: &Session, url: &Url) -> Result<Vec<u8>>
 }
 
 pub(crate) async fn public_api(url: &Url) -> Result<Option<Vec<u8>>> {
+    public_api_optional(url, &[reqwest::StatusCode::NOT_FOUND]).await
+}
+
+pub(crate) async fn public_api_optional(
+    url: &Url,
+    missing: &[reqwest::StatusCode],
+) -> Result<Option<Vec<u8>>> {
     for attempt in 0..=RETRIES {
         let response = fetch(|| PUBLIC_API.get(url.clone()).send())
             .await
             .with_context(|| format!("public API request failed: {url}"))?;
 
-        if response.status() == reqwest::StatusCode::NOT_FOUND {
+        if missing.contains(&response.status()) {
             return Ok(None);
         }
         if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS && attempt < RETRIES {
