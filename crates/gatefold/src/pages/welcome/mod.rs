@@ -18,8 +18,8 @@ const RPM: f64 = 33.3;
 const IDLE_RPM: f64 = 6.0;
 const SPIN_UP: f64 = 0.7;
 const SPIN_DOWN: f64 = 0.35;
-const ARM_REST: f64 = 105.0;
-const ARM_PLAY: f64 = 125.0;
+const ARM_REST: f64 = 90.0;
+const ARM_PLAY: f64 = 98.0;
 
 pub fn palette() -> Palette {
     Palette {
@@ -442,10 +442,10 @@ fn draw_arm(
     let set = |cr: &cairo::Context, (r, g, b): (f64, f64, f64)| cr.set_source_rgb(r, g, b);
 
     let (px, py) = (
-        cx + radius * 1.3,
-        cy - radius * 1.15 - radius * 1.1 * (1.0 - drop),
+        cx + radius,
+        cy - radius * 0.95 - radius * 1.45 * (1.0 - drop),
     );
-    let reach = radius;
+    let reach = radius * 1.25;
     let theta = angle.to_radians();
     let (tx, ty) = (px + reach * theta.cos(), py + reach * theta.sin());
     let metal = rgb(0.06, 0.58);
