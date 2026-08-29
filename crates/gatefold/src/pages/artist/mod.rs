@@ -651,7 +651,7 @@ impl ArtistPage {
             self.fetch_picture(request, picture, &services, sender, ArtistCmd::Portrait);
         }
 
-        let session = services.session.clone();
+        let session = services.session();
         let uri = self.artist.uri.clone();
         let mut requests = self.requests.subscribe();
         sender.command(move |out, shutdown| {
@@ -700,7 +700,7 @@ impl ArtistPage {
             sender.command_sender().emit(wrap(request, path));
             return;
         }
-        let session = services.session.clone();
+        let session = services.session();
         let mut requests = self.requests.subscribe();
         sender.command(move |out, shutdown| {
             shutdown
@@ -925,8 +925,9 @@ impl ArtistPage {
             sender.command(move |out, shutdown| {
                 shutdown
                     .register(async move {
+                        let session = services.session();
                         tokio::select! {
-                            result = metadata::discography(&services.session, &uri, ReleaseGroup::Singles) => {
+                            result = metadata::discography(&session, &uri, ReleaseGroup::Singles) => {
                                 if let Ok(singles) = result {
                                     let _ = out.send(ArtistCmd::Singles(request, singles));
                                 }
@@ -1113,8 +1114,9 @@ impl ArtistPage {
             sender.command(move |out, shutdown| {
                 shutdown
                     .register(async move {
+                        let session = services.session();
                         tokio::select! {
-                            result = images::fetch(&services.session, &picture) => {
+                            result = images::fetch(&session, &picture) => {
                                 if let Ok(path) = result {
                                     let _ = out.send(ArtistCmd::Image(request, picture, path));
                                 }

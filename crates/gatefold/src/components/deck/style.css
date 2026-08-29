@@ -28,6 +28,11 @@
     color: @on_surface;
 }
 
+.now-offline {
+    font-size: 8.5pt;
+    color: alpha(@on_surface, 0.45);
+}
+
 .now-time {
     font-size: 8.5pt;
     font-family: "Adwaita Mono";

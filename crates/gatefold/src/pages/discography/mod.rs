@@ -459,7 +459,7 @@ impl DiscographyPage {
         self.load_more.set_visible(true);
 
         let request = *self.requests.borrow();
-        let session = services.session.clone();
+        let session = services.session();
         let uri = self.artist.uri.clone();
         let view = self.view;
         let query = self.query.clone();
@@ -762,8 +762,9 @@ impl DiscographyPage {
             sender.command(move |out, shutdown| {
                 shutdown
                     .register(async move {
+                        let session = services.session();
                         tokio::select! {
-                            result = images::fetch(&services.session, &picture) => {
+                            result = images::fetch(&session, &picture) => {
                                 if let Ok(path) = result {
                                     let _ = out.send(DiscographyCmd::Image(request, picture, path));
                                 }

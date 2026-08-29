@@ -314,7 +314,7 @@ impl Component for Rack {
         match action {
             RackAction::SetServices(services) => {
                 self.services = Some(services.clone());
-                let profile_session = services.session.clone();
+                let profile_session = services.session();
                 sender.command(|out, shutdown| {
                     shutdown
                         .register(async move {
@@ -330,7 +330,7 @@ impl Component for Rack {
                 sender.command(|out, shutdown| {
                     shutdown
                         .register(async move {
-                            match metadata::playlists(&services.session).await {
+                            match metadata::playlists(&services.session()).await {
                                 Ok(playlists) => {
                                     let _ = out.send(RackCmd::Playlists(playlists));
                                 }
@@ -474,7 +474,7 @@ impl Rack {
             sender.command(move |out, shutdown| {
                 shutdown
                     .register(async move {
-                        if let Ok(path) = images::fetch(&services.session, &avatar).await {
+                        if let Ok(path) = images::fetch(&services.session(), &avatar).await {
                             let _ = out.send(RackCmd::Avatar(path));
                         }
                     })
@@ -524,7 +524,7 @@ impl Rack {
                 sender.command(move |out, shutdown| {
                     shutdown
                         .register(async move {
-                            if let Ok(path) = images::fetch(&services.session, &id).await {
+                            if let Ok(path) = images::fetch(&services.session(), &id).await {
                                 let _ = out.send(RackCmd::Picture(uri, path));
                             }
                         })

@@ -1,6 +1,6 @@
 use std::io::ErrorKind;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::{model::Profile, net};
 pub use librespot::core::Session;
@@ -10,12 +10,22 @@ use crate::auth;
 
 pub async fn connect() -> Result<Session> {
     let cache = cache()?;
-
     let credentials = match cache.credentials() {
         Some(credentials) => credentials,
         None => Credentials::with_access_token(auth::login().await?.access_token),
     };
 
+    open(cache, credentials).await
+}
+
+pub async fn resume() -> Result<Session> {
+    let cache = cache()?;
+    let credentials = cache.credentials().context("not signed in")?;
+
+    open(cache, credentials).await
+}
+
+async fn open(cache: Cache, credentials: Credentials) -> Result<Session> {
     let session = Session::new(SessionConfig::default(), Some(cache));
     session.connect(credentials, true).await?;
 

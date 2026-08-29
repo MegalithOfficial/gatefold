@@ -392,11 +392,11 @@ impl Topbar {
                         ],
                         ..SearchOptions::default()
                     };
-                    let message = match metadata::search(&services.session, &query, &options).await
-                    {
-                        Ok(results) => TopbarCmd::Results(request, Box::new(results)),
-                        Err(error) => TopbarCmd::Failed(format!("quick search: {error}")),
-                    };
+                    let message =
+                        match metadata::search(&services.session(), &query, &options).await {
+                            Ok(results) => TopbarCmd::Results(request, Box::new(results)),
+                            Err(error) => TopbarCmd::Failed(format!("quick search: {error}")),
+                        };
                     let _ = out.send(message);
                 })
                 .drop_on_shutdown()
@@ -556,7 +556,7 @@ impl Topbar {
                             shutdown
                                 .register(async move {
                                     if let Ok(path) =
-                                        images::fetch(&services.session, &picture).await
+                                        images::fetch(&services.session(), &picture).await
                                     {
                                         let _ = out.send(TopbarCmd::Image(request, picture, path));
                                     }

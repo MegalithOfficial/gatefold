@@ -456,7 +456,7 @@ impl PlaylistPage {
         let owner_name = if self.album {
             Some(playlist.owner.clone())
         } else {
-            session::cached_display_name(&services.session, &playlist.owner)
+            session::cached_display_name(&services.session(), &playlist.owner)
         };
         let owner_text = owner_name.clone().unwrap_or_else(|| "…".to_owned());
         self.owner.set_text(&owner_text);
@@ -470,7 +470,7 @@ impl PlaylistPage {
             format!("Playlist by {owner_text}")
         });
         if owner_name.is_none() {
-            let session = services.session.clone();
+            let session = services.session();
             let username = playlist.owner.clone();
             let mut requests = self.requests.subscribe();
             sender.command(move |out, shutdown| {
@@ -510,7 +510,7 @@ impl PlaylistPage {
                 self.cover.set_filename(Some(&path));
                 let _ = sender.output(PlaylistOutput::Cover(path));
             } else {
-                let session = services.session.clone();
+                let session = services.session();
                 let mut requests = self.requests.subscribe();
                 sender.command(move |out, shutdown| {
                     shutdown
@@ -531,7 +531,7 @@ impl PlaylistPage {
             }
         }
 
-        let session = services.session.clone();
+        let session = services.session();
         let uri = playlist.uri.clone();
         let album = self.album;
         let mut requests = self.requests.subscribe();
@@ -693,8 +693,9 @@ impl PlaylistPage {
                         sender.command(move |out, shutdown| {
                             shutdown
                                 .register(async move {
+                                    let session = services.session();
                                     tokio::select! {
-                                        result = images::fetch(&services.session, &cover_id) => {
+                                        result = images::fetch(&session, &cover_id) => {
                                             if let Ok(path) = result {
                                                 let _ = out.send(PlaylistCmd::TrackCover(
                                                     request,
@@ -790,8 +791,9 @@ impl PlaylistPage {
             sender.command(move |out, shutdown| {
                 shutdown
                     .register(async move {
+                        let session = services.session();
                         tokio::select! {
-                            result = metadata::artist_albums(&services.session, &artist_uri) => {
+                            result = metadata::artist_albums(&session, &artist_uri) => {
                                 if let Ok(refs) = result {
                                     let _ = out.send(PlaylistCmd::More(request, refs));
                                 }
@@ -813,8 +815,9 @@ impl PlaylistPage {
                 sender.command(move |out, shutdown| {
                     shutdown
                         .register(async move {
+                            let session = services.session();
                             tokio::select! {
-                                result = images::fetch(&services.session, &cover_id) => {
+                                result = images::fetch(&session, &cover_id) => {
                                     if let Ok(path) = result {
                                         let _ = out.send(PlaylistCmd::Cover(request, path));
                                     }
@@ -870,8 +873,9 @@ impl PlaylistPage {
                         sender.command(move |out, shutdown| {
                             shutdown
                                 .register(async move {
+                                    let session = services.session();
                                     tokio::select! {
-                                        result = images::fetch(&services.session, &cover_id) => {
+                                        result = images::fetch(&session, &cover_id) => {
                                             if let Ok(path) = result {
                                                 let _ = out.send(PlaylistCmd::MoreCover(
                                                     request, cover_id, path,

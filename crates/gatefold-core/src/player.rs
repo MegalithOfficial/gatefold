@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, RwLock, Weak,
         atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
     time::Duration,
@@ -10,6 +10,7 @@ use rand::seq::SliceRandom;
 
 use crate::{
     model::ArtistRef,
+    session,
     sink::{Rodio, SinkHandle},
 };
 
@@ -63,6 +64,9 @@ pub enum Event {
     Volume {
         volume: u16,
     },
+    Connection {
+        online: bool,
+    },
     Stopped,
 }
 
@@ -101,7 +105,13 @@ impl Queue {
 }
 
 pub struct Playback {
-    player: Arc<Player>,
+    weak: Weak<Playback>,
+    session: RwLock<Session>,
+    session_epoch: AtomicU64,
+    player: RwLock<Arc<Player>>,
+    player_epoch: AtomicU64,
+    reconnecting: AtomicBool,
+    resume: AtomicBool,
     mixer: SoftMixer,
     sink: SinkHandle,
     queue: Arc<Mutex<Queue>>,
@@ -118,31 +128,17 @@ const LOAD_DEBOUNCE: Duration = Duration::from_millis(250);
 pub fn start(session: Session) -> Result<Arc<Playback>> {
     let mixer = SoftMixer::open(MixerConfig::default())?;
     let handle = SinkHandle::default();
-
-    let player = match std::env::var("GATEFOLD_BACKEND").ok() {
-        Some(name) => {
-            let backend = audio_backend::find(Some(name)).context("no such audio backend")?;
-            Player::new(
-                PlayerConfig::default(),
-                session,
-                mixer.get_soft_volume(),
-                move || backend(None, AudioFormat::default()),
-            )
-        }
-        None => {
-            let sink = handle.clone();
-            Player::new(
-                PlayerConfig::default(),
-                session,
-                mixer.get_soft_volume(),
-                move || Box::new(Rodio::open(&sink).expect("audio output")),
-            )
-        }
-    };
+    let player = build_player(session.clone(), &mixer, &handle)?;
 
     let (events, _) = broadcast::channel(64);
-    let playback = Arc::new(Playback {
-        player,
+    let playback = Arc::new_cyclic(|weak| Playback {
+        weak: weak.clone(),
+        session: RwLock::new(session),
+        session_epoch: AtomicU64::new(0),
+        player: RwLock::new(player.clone()),
+        player_epoch: AtomicU64::new(0),
+        reconnecting: AtomicBool::new(false),
+        resume: AtomicBool::new(false),
         mixer,
         sink: handle,
         queue: Arc::new(Mutex::new(Queue::default())),
@@ -153,21 +149,114 @@ pub fn start(session: Session) -> Result<Arc<Playback>> {
         runtime: tokio::runtime::Handle::current(),
         events,
     });
-
-    let pump = playback.clone();
-    let mut channel = pump.player.get_player_event_channel();
-    tokio::spawn(async move {
-        while let Some(event) = channel.recv().await {
-            pump.handle(event);
-        }
-    });
+    spawn_pump(playback.clone(), player);
 
     Ok(playback)
+}
+
+fn build_player(session: Session, mixer: &SoftMixer, sink: &SinkHandle) -> Result<Arc<Player>> {
+    Ok(match std::env::var("GATEFOLD_BACKEND").ok() {
+        Some(name) => {
+            let backend = audio_backend::find(Some(name)).context("no such audio backend")?;
+            Player::new(
+                PlayerConfig::default(),
+                session,
+                mixer.get_soft_volume(),
+                move || backend(None, AudioFormat::default()),
+            )
+        }
+        None => {
+            let sink = sink.clone();
+            Player::new(
+                PlayerConfig::default(),
+                session,
+                mixer.get_soft_volume(),
+                move || Box::new(Rodio::open(&sink).expect("audio output")),
+            )
+        }
+    })
+}
+
+fn spawn_pump(playback: Arc<Playback>, player: Arc<Player>) {
+    let mut channel = player.get_player_event_channel();
+    playback.runtime.clone().spawn(async move {
+        while let Some(event) = channel.recv().await {
+            playback.handle(event);
+        }
+    });
 }
 
 impl Playback {
     pub fn events(&self) -> broadcast::Receiver<Event> {
         self.events.subscribe()
+    }
+
+    pub fn session(&self) -> Session {
+        self.session.read().unwrap().clone()
+    }
+
+    fn player(&self) -> Arc<Player> {
+        self.player.read().unwrap().clone()
+    }
+
+    fn reconnect(&self) {
+        if self.reconnecting.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        tracing::warn!("session lost, reconnecting");
+        self.emit(Event::Connection { online: false });
+        let weak = self.weak.clone();
+        self.runtime.spawn(async move {
+            let mut delay = 1;
+            loop {
+                let Some(playback) = weak.upgrade() else {
+                    return;
+                };
+                if !session::signed_in() {
+                    playback.reconnecting.store(false, Ordering::SeqCst);
+                    return;
+                }
+                match session::resume().await {
+                    Ok(session) => {
+                        *playback.session.write().unwrap() = session;
+                        playback.session_epoch.fetch_add(1, Ordering::SeqCst);
+                        playback.reconnecting.store(false, Ordering::SeqCst);
+                        playback.emit(Event::Connection { online: true });
+                        tracing::info!("session reconnected");
+                        if playback.resume.swap(false, Ordering::SeqCst) {
+                            playback.load_current();
+                        }
+                        return;
+                    }
+                    Err(error) => {
+                        tracing::warn!("reconnect failed, retrying in {delay}s: {error:#}");
+                    }
+                }
+                drop(playback);
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                delay = (delay * 2).min(30);
+            }
+        });
+    }
+
+    fn refresh_player(&self) {
+        let generation = self.session_epoch.load(Ordering::SeqCst);
+        if self.player_epoch.swap(generation, Ordering::SeqCst) == generation {
+            return;
+        }
+        match build_player(self.session(), &self.mixer, &self.sink) {
+            Ok(player) => {
+                let old = {
+                    let mut slot = self.player.write().unwrap();
+                    std::mem::replace(&mut *slot, player.clone())
+                };
+                old.stop();
+                if let Some(playback) = self.weak.upgrade() {
+                    spawn_pump(playback, player);
+                }
+            }
+            Err(error) => tracing::error!("could not rebuild the player: {error:#}"),
+        }
     }
 
     pub fn play_queue(&self, uris: Vec<String>, index: usize) {
@@ -229,11 +318,11 @@ impl Playback {
     }
 
     pub fn play(&self) {
-        self.player.play();
+        self.player().play();
     }
 
     pub fn pause(&self) {
-        self.player.pause();
+        self.player().pause();
     }
 
     pub fn toggle(&self) {
@@ -246,23 +335,23 @@ impl Playback {
 
     pub fn seek(&self, position_ms: u32) {
         self.sink.flush();
-        self.player.seek(position_ms);
+        self.player().seek(position_ms);
     }
 
     pub fn next(&self) {
         self.demote_repeat();
         if !self.step(1) {
-            self.player.stop();
+            self.player().stop();
         }
     }
 
     pub fn previous(&self) {
         if self.position_ms.load(Ordering::Relaxed) > RESTART_THRESHOLD_MS {
-            self.player.seek(0);
+            self.player().seek(0);
         } else {
             self.demote_repeat();
             if !self.step(-1) {
-                self.player.seek(0);
+                self.player().seek(0);
             }
         }
     }
@@ -330,7 +419,7 @@ impl Playback {
             }
             Repeat::Off => {
                 if !self.step(1) {
-                    self.player.stop();
+                    self.player().stop();
                 }
             }
         }
@@ -339,25 +428,31 @@ impl Playback {
     fn load_current(&self) {
         let epoch = self.load_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let load_epoch = self.load_epoch.clone();
-        let queue = self.queue.clone();
-        let player = self.player.clone();
-        let sink = self.sink.clone();
+        let weak = self.weak.clone();
 
         self.runtime.spawn(async move {
             tokio::time::sleep(LOAD_DEBOUNCE).await;
             if load_epoch.load(Ordering::SeqCst) != epoch {
                 return;
             }
-
-            let uri = queue.lock().unwrap().current();
+            let Some(playback) = weak.upgrade() else {
+                return;
+            };
+            let uri = playback.queue.lock().unwrap().current();
             let Some(uri) = uri else {
                 return;
             };
+            if playback.session().is_invalid() {
+                playback.resume.store(true, Ordering::SeqCst);
+                playback.reconnect();
+                return;
+            }
+            playback.refresh_player();
 
             match SpotifyUri::from_uri(&uri) {
                 Ok(id) => {
-                    sink.flush();
-                    player.load(id, true, 0);
+                    playback.sink.flush();
+                    playback.player().load(id, true, 0);
                 }
                 Err(error) => tracing::error!("bad queue uri {uri}: {error}"),
             }
@@ -460,16 +555,24 @@ impl Playback {
                 self.advance();
             }
             PlayerEvent::Unavailable { track_id, .. } => {
+                if self.session().is_invalid() {
+                    self.resume.store(true, Ordering::SeqCst);
+                    self.reconnect();
+                    return;
+                }
                 tracing::warn!("track unavailable, skipping: {}", uri_string(&track_id));
                 if !self.step(1) {
-                    self.player.stop();
+                    self.player().stop();
                 }
             }
             PlayerEvent::TimeToPreloadNextTrack { .. } => {
+                if self.session().is_invalid() {
+                    return;
+                }
                 if let Some(uri) = self.upcoming()
                     && let Ok(id) = SpotifyUri::from_uri(&uri)
                 {
-                    self.player.preload(id);
+                    self.player().preload(id);
                 }
             }
             PlayerEvent::VolumeChanged { volume } => self.emit(Event::Volume { volume }),

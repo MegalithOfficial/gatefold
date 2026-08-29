@@ -32,8 +32,13 @@ use crate::{
 };
 
 pub struct Services {
-    pub session: Session,
     pub playback: Arc<Playback>,
+}
+
+impl Services {
+    pub fn session(&self) -> Session {
+        self.playback.session()
+    }
 }
 
 #[derive(Clone)]
@@ -441,7 +446,7 @@ async fn start() -> Result<Arc<Services>> {
     let session = session::connect().await?;
     tracing::info!("connected as {}", session.username());
 
-    let playback = player::start(session.clone())?;
+    let playback = player::start(session)?;
 
-    Ok(Arc::new(Services { session, playback }))
+    Ok(Arc::new(Services { playback }))
 }

@@ -216,11 +216,11 @@ impl SearchPage {
                         limit: 10,
                         ..SearchOptions::default()
                     };
-                    let message = match metadata::search(&services.session, &query, &options).await
-                    {
-                        Ok(results) => SearchCmd::Results(request, Box::new(results)),
-                        Err(error) => SearchCmd::Failed(format!("search: {error}")),
-                    };
+                    let message =
+                        match metadata::search(&services.session(), &query, &options).await {
+                            Ok(results) => SearchCmd::Results(request, Box::new(results)),
+                            Err(error) => SearchCmd::Failed(format!("search: {error}")),
+                        };
                     let _ = out.send(message);
                 })
                 .drop_on_shutdown()
@@ -869,8 +869,9 @@ impl SearchPage {
         sender.command(move |out, shutdown| {
             shutdown
                 .register(async move {
+                    let session = services.session();
                     tokio::select! {
-                        result = images::fetch(&services.session, &picture) => {
+                        result = images::fetch(&session, &picture) => {
                             if let Ok(path) = result {
                                 let _ = out.send(SearchCmd::Image(request, picture, path));
                             }

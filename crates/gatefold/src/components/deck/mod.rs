@@ -25,6 +25,7 @@ pub struct Deck {
     cover: Option<PathBuf>,
     title: String,
     artists: Vec<ArtistRef>,
+    offline: bool,
     playing: bool,
     shuffle: bool,
     repeat: Repeat,
@@ -138,6 +139,14 @@ impl Component for Deck {
                             sender.input(DeckAction::OpenArtist(uri.to_owned()));
                             gtk::glib::Propagation::Stop
                         },
+                    },
+
+                    gtk::Label {
+                        set_label: "Reconnecting…",
+                        #[watch]
+                        set_visible: model.offline,
+                        set_xalign: 0.0,
+                        add_css_class: "now-offline",
                     },
                 },
             },
@@ -342,6 +351,7 @@ impl Component for Deck {
             cover: None,
             title: String::new(),
             artists: Vec::new(),
+            offline: false,
             playing: false,
             shuffle: false,
             repeat: Repeat::Off,
@@ -448,6 +458,7 @@ impl Component for Deck {
                         self.position_ms = position_ms;
                     }
                 }
+                player::Event::Connection { online } => self.offline = !online,
                 player::Event::TrackChanged {
                     uri,
                     name,
@@ -466,7 +477,7 @@ impl Component for Deck {
                             let _ = _sender.output(DeckOutput::Cover(path));
                         } else if let Some(services) = self.services.clone() {
                             _sender.oneshot_command(async move {
-                                match images::fetch(&services.session, &id).await {
+                                match images::fetch(&services.session(), &id).await {
                                     Ok(path) => DeckUpdate::Cover(uri, path),
                                     Err(error) => {
                                         tracing::warn!("cover: {error}");
