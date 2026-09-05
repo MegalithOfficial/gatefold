@@ -82,6 +82,12 @@ pub enum Repeat {
 
 const RESTART_THRESHOLD_MS: u32 = 3000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slot {
+    Queued(usize),
+    Ahead(usize),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot {
     pub current: Option<String>,
@@ -117,6 +123,27 @@ impl Queue {
     fn take_up_next(&mut self) -> bool {
         self.detour = self.up_next.pop_front();
         self.detour.is_some()
+    }
+
+    fn take_ahead(&mut self, offset: usize) -> Option<String> {
+        let position = self.position + 1 + offset;
+        if position >= self.order.len() {
+            return None;
+        }
+        let index = self.order.remove(position);
+        let uri = self.uris.remove(index);
+        for slot in &mut self.order {
+            if *slot > index {
+                *slot -= 1;
+            }
+        }
+        Some(uri)
+    }
+
+    fn put_ahead(&mut self, offset: usize, uri: String) {
+        let position = (self.position + 1 + offset).min(self.order.len());
+        self.uris.push(uri);
+        self.order.insert(position, self.uris.len() - 1);
     }
 }
 
@@ -347,6 +374,31 @@ impl Playback {
     pub fn remove_up_next(&self, index: usize) {
         if self.queue.lock().unwrap().up_next.remove(index).is_some() {
             self.emit(Event::UpNextChanged);
+        }
+    }
+
+    pub fn move_track(&self, from: Slot, to: Slot) {
+        let (index, length) = {
+            let mut queue = self.queue.lock().unwrap();
+            let uri = match from {
+                Slot::Queued(index) => queue.up_next.remove(index),
+                Slot::Ahead(offset) => queue.take_ahead(offset),
+            };
+            let Some(uri) = uri else {
+                return;
+            };
+            match to {
+                Slot::Queued(index) => {
+                    let index = index.min(queue.up_next.len());
+                    queue.up_next.insert(index, uri);
+                }
+                Slot::Ahead(offset) => queue.put_ahead(offset, uri),
+            }
+            (queue.position, queue.order.len())
+        };
+        self.emit(Event::UpNextChanged);
+        if matches!(from, Slot::Ahead(_)) || matches!(to, Slot::Ahead(_)) {
+            self.emit(Event::QueueChanged { index, length });
         }
     }
 

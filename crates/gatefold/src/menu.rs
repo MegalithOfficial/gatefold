@@ -17,7 +17,7 @@ pub fn attach<T: Copy + 'static>(
     row: &gtk::Button,
     items: &'static [(&'static str, T)],
     pick: impl Fn(T) + 'static,
-) -> gtk::Button {
+) -> gtk::Image {
     let pick = Rc::new(pick);
     let gesture = gtk::GestureClick::new();
     gesture.set_button(gdk::BUTTON_SECONDARY);
@@ -26,23 +26,45 @@ pub fn attach<T: Copy + 'static>(
         let pick = pick.clone();
         move |gesture, _, x, y| {
             gesture.set_state(gtk::EventSequenceState::Claimed);
-            open(&row, items, pick.clone(), Some((x as i32, y as i32)));
+            open(
+                row.upcast_ref(),
+                items,
+                pick.clone(),
+                Some((x as i32, y as i32)),
+            );
         }
     });
     row.add_controller(gesture);
 
-    let more = gtk::Button::from_icon_name("view-more-symbolic");
-    more.add_css_class("track-more");
-    more.set_valign(gtk::Align::Center);
-    more.set_focus_on_click(false);
-    more.set_tooltip_text(Some("More options"));
-    more.connect_clicked(move |more| open(more, items, pick.clone(), None));
+    glyph("view-more-symbolic", "More options", move |more| {
+        open(more, items, pick.clone(), None);
+    })
+}
 
-    more
+pub fn glyph(icon: &str, tooltip: &str, activate: impl Fn(&gtk::Widget) + 'static) -> gtk::Image {
+    let glyph = gtk::Image::from_icon_name(icon);
+    glyph.add_css_class("track-more");
+    glyph.set_valign(gtk::Align::Center);
+    glyph.set_tooltip_text(Some(tooltip));
+    let click = gtk::GestureClick::new();
+    click.set_propagation_phase(gtk::PropagationPhase::Capture);
+    click.connect_pressed(|gesture, _, _, _| {
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+    });
+    click.connect_released(move |gesture, _, x, y| {
+        if let Some(widget) = gesture.widget()
+            && widget.contains(x, y)
+        {
+            activate(&widget);
+        }
+    });
+    glyph.add_controller(click);
+
+    glyph
 }
 
 fn open<T: Copy + 'static>(
-    parent: &gtk::Button,
+    parent: &gtk::Widget,
     items: &'static [(&'static str, T)],
     pick: Rc<impl Fn(T) + 'static>,
     at: Option<(i32, i32)>,

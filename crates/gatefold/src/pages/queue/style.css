@@ -62,3 +62,9 @@
     margin-right: 4px;
     color: @primary;
 }
+
+.queue-list .track.lifting,
+.track.lifting {
+    background: @surface_high;
+    box-shadow: 0 10px 28px alpha(black, 0.4);
+}

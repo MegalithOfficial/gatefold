@@ -1,19 +1,25 @@
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     path::PathBuf,
+    rc::Rc,
     sync::Arc,
 };
 
 use gatefold_core::{
     images, metadata,
     model::{ArtistRef, TrackInfo},
-    player::{self, Snapshot},
+    player::{self, Slot, Snapshot},
 };
-use relm4::{Component, ComponentParts, ComponentSender, gtk, gtk::prelude::*};
+use relm4::{
+    Component, ComponentParts, ComponentSender, gtk,
+    gtk::{gdk, glib, graphene, prelude::*},
+};
 
 use crate::{
     app::Services,
     artists,
+    lane::Lane,
     menu::{self, TrackMenu},
     skeleton,
 };
@@ -34,8 +40,11 @@ pub struct QueuePage {
     snapshot: Snapshot,
     known: HashMap<String, TrackInfo>,
     pending: HashSet<String>,
+    textures: HashMap<String, gdk::Texture>,
+    refresh_queued: bool,
     is_playing: bool,
     column: gtk::Box,
+    scroll: gtk::ScrolledWindow,
     quick: gtk::Box,
     now: Vec<(gtk::Button, gtk::Image)>,
     thumbs: Vec<(String, gtk::Image, i32)>,
@@ -43,10 +52,12 @@ pub struct QueuePage {
 
 pub enum QueueAction {
     SetServices(Arc<Services>),
+    Refresh,
     Toggle,
     PlayUpNext(usize),
     Jump(usize),
     Remove(usize),
+    Move(Slot, Slot),
     Clear,
     Enqueue(String, TrackMenu),
     OpenArtist(Box<ArtistRef>),
@@ -57,10 +68,12 @@ impl std::fmt::Debug for QueueAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             QueueAction::SetServices(_) => write!(f, "SetServices"),
+            QueueAction::Refresh => write!(f, "Refresh"),
             QueueAction::Toggle => write!(f, "Toggle"),
             QueueAction::PlayUpNext(index) => write!(f, "PlayUpNext({index})"),
             QueueAction::Jump(position) => write!(f, "Jump({position})"),
             QueueAction::Remove(index) => write!(f, "Remove({index})"),
+            QueueAction::Move(from, to) => write!(f, "Move({from:?}, {to:?})"),
             QueueAction::Clear => write!(f, "Clear"),
             QueueAction::Enqueue(uri, pick) => write!(f, "Enqueue({uri}, {pick:?})"),
             QueueAction::OpenArtist(artist) => write!(f, "OpenArtist({})", artist.name),
@@ -117,15 +130,17 @@ impl Component for QueuePage {
             snapshot: Snapshot::default(),
             known: HashMap::new(),
             pending: HashSet::new(),
+            textures: HashMap::new(),
+            refresh_queued: false,
             is_playing: false,
             column: gtk::Box::new(gtk::Orientation::Vertical, 0),
+            scroll: root.clone(),
             quick,
             now: Vec::new(),
             thumbs: Vec::new(),
         };
         let column = &model.column;
         let widgets = view_output!();
-        let _ = root;
         model.render(&sender);
 
         ComponentParts { model, widgets }
@@ -154,10 +169,15 @@ impl Component for QueuePage {
         let playback = &services.playback;
 
         match action {
+            QueueAction::Refresh => {
+                self.refresh_queued = false;
+                self.refresh(&sender);
+            }
             QueueAction::Toggle => playback.toggle(),
             QueueAction::PlayUpNext(index) => playback.play_up_next(index),
             QueueAction::Jump(position) => playback.jump(position),
             QueueAction::Remove(index) => playback.remove_up_next(index),
+            QueueAction::Move(from, to) => playback.move_track(from, to),
             QueueAction::Clear => playback.clear_up_next(),
             QueueAction::Enqueue(uri, pick) => menu::enqueue(playback, &uri, pick),
             QueueAction::OpenArtist(artist) => {
@@ -182,7 +202,9 @@ impl Component for QueuePage {
                 | player::Event::TrackChanged { .. }
                 | player::Event::QueueChanged { .. }
                 | player::Event::UpNextChanged
-                | player::Event::Stopped => self.refresh(&sender),
+                | player::Event::ShuffleChanged { .. }
+                | player::Event::RepeatChanged { .. }
+                | player::Event::Stopped => self.schedule_refresh(&sender),
                 player::Event::Playing { .. } => self.set_playing(true),
                 player::Event::Paused { .. } => self.set_playing(false),
                 _ => {}
@@ -197,9 +219,12 @@ impl Component for QueuePage {
                 self.render(&sender);
             }
             QueueCmd::Cover(cover_id, path) => {
+                let Some(texture) = self.texture(&cover_id, &path) else {
+                    return;
+                };
                 for (thumb_id, image, size) in &self.thumbs {
                     if thumb_id == &cover_id {
-                        image.set_from_file(Some(&path));
+                        image.set_paintable(Some(&texture));
                         image.set_pixel_size(*size);
                     }
                 }
@@ -209,6 +234,24 @@ impl Component for QueuePage {
 }
 
 impl QueuePage {
+    fn schedule_refresh(&mut self, sender: &ComponentSender<Self>) {
+        if self.refresh_queued {
+            return;
+        }
+        self.refresh_queued = true;
+        let input = sender.input_sender().clone();
+        glib::idle_add_local_once(move || input.emit(QueueAction::Refresh));
+    }
+
+    fn texture(&mut self, cover_id: &str, path: &std::path::Path) -> Option<gdk::Texture> {
+        if let Some(texture) = self.textures.get(cover_id) {
+            return Some(texture.clone());
+        }
+        let texture = gdk::Texture::from_filename(path).ok()?;
+        self.textures.insert(cover_id.to_owned(), texture.clone());
+        Some(texture)
+    }
+
     fn refresh(&mut self, sender: &ComponentSender<Self>) {
         let Some(services) = self.services.clone() else {
             return;
@@ -279,12 +322,33 @@ impl QueuePage {
             return;
         }
 
+        let list = Lane::default();
+        list.add_css_class("queue-list");
+        let boundary =
+            (!snapshot.ahead.is_empty()).then(|| head(&next_from(&snapshot.source), None));
+        let reorder = Reorder {
+            column: column.clone(),
+            list: list.clone(),
+            boundary: boundary.clone().map(|head| head.upcast()),
+            scroll: self.scroll.clone(),
+            input: sender.input_sender().clone(),
+        };
+
         let mut requested = HashSet::new();
         if let Some(uri) = &snapshot.current {
-            column.append(&head("Now playing", None));
+            let clear = (!snapshot.up_next.is_empty()).then(|| {
+                let clear = gtk::Button::with_label("Clear queue");
+                clear.add_css_class("queue-clear");
+                let on_clear = sender.input_sender().clone();
+                clear.connect_clicked(move |_| on_clear.emit(QueueAction::Clear));
+                clear
+            });
+            column.append(&head("Now playing", clear.as_ref()));
             let enqueue = sender.input_sender().clone();
             let queued = uri.clone();
-            if let Some(row) = self.row(&column, uri, 0, sender, &mut requested, true) {
+            let (widget, row) = self.row(uri, 0, sender, &mut requested, true);
+            column.append(&widget);
+            if let Some(row) = row {
                 let toggle = sender.input_sender().clone();
                 row.connect_clicked(move |_| toggle.emit(QueueAction::Toggle));
                 row.append_more(menu::attach(&row.button, menu::TRACK, move |pick| {
@@ -293,41 +357,45 @@ impl QueuePage {
             }
         }
 
-        if !snapshot.up_next.is_empty() {
-            let clear = gtk::Button::with_label("Clear");
-            clear.add_css_class("queue-clear");
-            let on_clear = sender.input_sender().clone();
-            clear.connect_clicked(move |_| on_clear.emit(QueueAction::Clear));
-            column.append(&head("Next in queue", Some(&clear)));
-            for (index, uri) in snapshot.up_next.iter().enumerate() {
-                if let Some(row) = self.row(&column, uri, index, sender, &mut requested, false) {
-                    let play = sender.input_sender().clone();
-                    row.connect_clicked(move |_| play.emit(QueueAction::PlayUpNext(index)));
-                    let remove = sender.input_sender().clone();
-                    row.append_more(menu::attach(
-                        &row.button,
-                        UP_NEXT,
-                        move |UpNextMenu::Remove| {
-                            remove.emit(QueueAction::Remove(index));
-                        },
-                    ));
-                }
+        column.append(&list);
+        for (index, uri) in snapshot.up_next.iter().enumerate() {
+            let (widget, row) = self.row(uri, index, sender, &mut requested, false);
+            list.append(&widget);
+            if let Some(row) = row {
+                let play = sender.input_sender().clone();
+                row.connect_clicked(move |_| play.emit(QueueAction::PlayUpNext(index)));
+                let on_remove = sender.input_sender().clone();
+                row.append_more(menu::glyph(
+                    "window-close-symbolic",
+                    "Remove from queue",
+                    move |_| {
+                        on_remove.emit(QueueAction::Remove(index));
+                    },
+                ));
+                let on_remove = sender.input_sender().clone();
+                menu::attach(&row.button, UP_NEXT, move |UpNextMenu::Remove| {
+                    on_remove.emit(QueueAction::Remove(index));
+                });
+                reorder.attach(&row.button, Slot::Queued(index));
             }
         }
 
-        if !snapshot.ahead.is_empty() {
-            column.append(&head(&next_from(&snapshot.source), None));
-            for (index, uri) in snapshot.ahead.iter().enumerate() {
-                if let Some(row) = self.row(&column, uri, index, sender, &mut requested, false) {
-                    let position = snapshot.ahead_from + index;
-                    let jump = sender.input_sender().clone();
-                    row.connect_clicked(move |_| jump.emit(QueueAction::Jump(position)));
-                    let enqueue = sender.input_sender().clone();
-                    let queued = uri.clone();
-                    row.append_more(menu::attach(&row.button, menu::TRACK, move |pick| {
-                        enqueue.emit(QueueAction::Enqueue(queued.clone(), pick));
-                    }));
-                }
+        if let Some(boundary) = boundary {
+            list.append(&boundary);
+        }
+        for (index, uri) in snapshot.ahead.iter().enumerate() {
+            let (widget, row) = self.row(uri, index, sender, &mut requested, false);
+            list.append(&widget);
+            if let Some(row) = row {
+                let position = snapshot.ahead_from + index;
+                let jump = sender.input_sender().clone();
+                row.connect_clicked(move |_| jump.emit(QueueAction::Jump(position)));
+                let enqueue = sender.input_sender().clone();
+                let queued = uri.clone();
+                row.append_more(menu::attach(&row.button, menu::TRACK, move |pick| {
+                    enqueue.emit(QueueAction::Enqueue(queued.clone(), pick));
+                }));
+                reorder.attach(&row.button, Slot::Ahead(index));
             }
         }
     }
@@ -364,16 +432,13 @@ impl QueuePage {
             });
             left -= 1;
         }
-        if !snapshot.up_next.is_empty() {
-            quick.append(&quick_head("Next in queue"));
-            for (index, uri) in snapshot.up_next.iter().take(left).enumerate() {
-                let play = sender.input_sender().clone();
-                self.quick_row(&quick, uri, sender, &mut requested, false, move || {
-                    play.emit(QueueAction::PlayUpNext(index));
-                });
-            }
-            left = left.saturating_sub(snapshot.up_next.len());
+        for (index, uri) in snapshot.up_next.iter().take(left).enumerate() {
+            let play = sender.input_sender().clone();
+            self.quick_row(&quick, uri, sender, &mut requested, false, move || {
+                play.emit(QueueAction::PlayUpNext(index));
+            });
         }
+        left = left.saturating_sub(snapshot.up_next.len());
         if left > 0 && !snapshot.ahead.is_empty() {
             quick.append(&quick_head(&next_from(&snapshot.source)));
             for (index, uri) in snapshot.ahead.iter().take(left).enumerate() {
@@ -388,19 +453,17 @@ impl QueuePage {
 
     fn row(
         &mut self,
-        column: &gtk::Box,
         uri: &str,
         index: usize,
         sender: &ComponentSender<Self>,
         requested: &mut HashSet<String>,
         now: bool,
-    ) -> Option<Row> {
+    ) -> (gtk::Widget, Option<Row>) {
         let Some(track) = self.known.get(uri).cloned() else {
             let bones = skeleton::track_row(index as i32, false);
             bones.set_margin_start(16);
             bones.set_margin_end(16);
-            column.append(&bones);
-            return None;
+            return (bones.upcast(), None);
         };
 
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 16);
@@ -461,9 +524,8 @@ impl QueuePage {
             }
             self.now.push((button.clone(), track_play));
         }
-        column.append(&button);
 
-        Some(Row { button, row })
+        (button.clone().upcast(), Some(Row { button, row }))
     }
 
     fn quick_row(
@@ -535,10 +597,13 @@ impl QueuePage {
         tile.set_valign(gtk::Align::Center);
         tile.set_hexpand(false);
         tile.set_overflow(gtk::Overflow::Hidden);
-        let cached = track.cover_id.as_deref().and_then(images::cached);
-        let image = match &cached {
-            Some(path) => {
-                let image = gtk::Image::from_file(path);
+        let texture = track.cover_id.as_deref().and_then(|cover_id| {
+            let path = images::cached(cover_id)?;
+            self.texture(cover_id, &path)
+        });
+        let image = match &texture {
+            Some(texture) => {
+                let image = gtk::Image::from_paintable(Some(texture));
                 image.set_pixel_size(size);
                 image
             }
@@ -549,7 +614,7 @@ impl QueuePage {
         tile.append(&image);
         if let Some(cover_id) = &track.cover_id {
             self.thumbs.push((cover_id.clone(), image, size));
-            if cached.is_none()
+            if texture.is_none()
                 && requested.insert(cover_id.clone())
                 && let Some(services) = self.services.clone()
             {
@@ -580,9 +645,163 @@ impl Row {
         self.button.connect_clicked(handler);
     }
 
-    fn append_more(&self, more: gtk::Button) {
+    fn append_more(&self, more: impl IsA<gtk::Widget>) {
         self.row.append(&more);
     }
+}
+
+#[derive(Clone)]
+struct Reorder {
+    column: gtk::Box,
+    list: Lane,
+    boundary: Option<gtk::Widget>,
+    scroll: gtk::ScrolledWindow,
+    input: relm4::Sender<QueueAction>,
+}
+
+const LIFT_THRESHOLD: f64 = 8.0;
+const SCROLL_EDGE: f32 = 56.0;
+const SCROLL_STEP: f64 = 14.0;
+
+impl Reorder {
+    fn attach(&self, row: &gtk::Button, from: Slot) {
+        let drag = gtk::GestureDrag::new();
+        drag.set_button(gdk::BUTTON_PRIMARY);
+        let grab = Rc::new(Cell::new(None::<f32>));
+        drag.connect_drag_update({
+            let reorder = self.clone();
+            let row = row.clone();
+            let grab = grab.clone();
+            move |gesture, _, dy| {
+                let Some(y) = pointer_in(gesture, reorder.column.upcast_ref()) else {
+                    return;
+                };
+                if grab.get().is_none() {
+                    if dy.abs() < LIFT_THRESHOLD {
+                        return;
+                    }
+                    let Some(bounds) = row.compute_bounds(&reorder.column) else {
+                        return;
+                    };
+                    grab.set(Some(y - bounds.y() - dy as f32));
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    row.add_css_class("lifting");
+                    row.set_cursor_from_name(Some("grabbing"));
+                }
+                reorder.place(&row, y);
+                reorder.follow(&row, y - grab.get().unwrap_or(0.0));
+                if let Some(y) = pointer_in(gesture, reorder.scroll.upcast_ref()) {
+                    reorder.autoscroll(y);
+                }
+            }
+        });
+        drag.connect_drag_end({
+            let reorder = self.clone();
+            let row = row.clone();
+            move |_, _, _| {
+                if grab.replace(None).is_none() {
+                    return;
+                }
+                row.remove_css_class("lifting");
+                row.set_cursor(None);
+                reorder.list.lift(None, 0.0);
+                if let Some(to) = reorder.slot_of(&row)
+                    && to != from
+                {
+                    reorder.input.emit(QueueAction::Move(from, to));
+                }
+            }
+        });
+        row.add_controller(drag);
+    }
+
+    fn index_of(&self, row: &gtk::Button) -> Option<usize> {
+        slots(self.list.upcast_ref())
+            .iter()
+            .position(|slot| slot == row.upcast_ref::<gtk::Widget>())
+    }
+
+    fn slot_of(&self, row: &gtk::Button) -> Option<Slot> {
+        let mut queued = 0;
+        let mut ahead = 0;
+        let mut crossed = false;
+        for slot in slots(self.list.upcast_ref()) {
+            if Some(&slot) == self.boundary.as_ref() {
+                crossed = true;
+            } else if &slot == row.upcast_ref::<gtk::Widget>() {
+                return Some(if crossed {
+                    Slot::Ahead(ahead)
+                } else {
+                    Slot::Queued(queued)
+                });
+            } else if crossed {
+                ahead += 1;
+            } else {
+                queued += 1;
+            }
+        }
+
+        None
+    }
+
+    fn follow(&self, row: &gtk::Button, top: f32) {
+        let Some(bounds) = self.list.compute_bounds(&self.column) else {
+            return;
+        };
+        self.list.lift(Some(row.upcast_ref()), top - bounds.y());
+    }
+
+    fn place(&self, row: &gtk::Button, y: f32) {
+        let others: Vec<gtk::Widget> = slots(self.list.upcast_ref())
+            .into_iter()
+            .filter(|slot| slot != row.upcast_ref::<gtk::Widget>())
+            .collect();
+        let target = others
+            .iter()
+            .filter(|slot| {
+                slot.compute_bounds(&self.column)
+                    .is_some_and(|bounds| y > bounds.y() + bounds.height() / 2.0)
+            })
+            .count();
+        if self.index_of(row) != Some(target) {
+            let after = target.checked_sub(1).and_then(|index| others.get(index));
+            self.list.insert_after(row, after);
+        }
+    }
+
+    fn autoscroll(&self, y: f32) {
+        let height = self.scroll.height() as f32;
+        let adjustment = self.scroll.vadjustment();
+        if y < SCROLL_EDGE {
+            adjustment.set_value(adjustment.value() - SCROLL_STEP);
+        } else if y > height - SCROLL_EDGE {
+            adjustment.set_value(adjustment.value() + SCROLL_STEP);
+        }
+    }
+}
+
+fn pointer_in(gesture: &gtk::GestureDrag, widget: &gtk::Widget) -> Option<f32> {
+    let event = gesture.last_event(gesture.current_sequence().as_ref())?;
+    let (x, y) = event.position()?;
+    let native = widget.native()?;
+    let (tx, ty) = native.surface_transform();
+    let point = native.upcast_ref::<gtk::Widget>().compute_point(
+        widget,
+        &graphene::Point::new((x - tx) as f32, (y - ty) as f32),
+    )?;
+
+    Some(point.y())
+}
+
+fn slots(list: &gtk::Widget) -> Vec<gtk::Widget> {
+    let mut slots = Vec::new();
+    let mut child = list.first_child();
+    while let Some(widget) = child {
+        slots.push(widget.clone());
+        child = widget.next_sibling();
+    }
+
+    slots
 }
 
 fn head(text: &str, trailing: Option<&gtk::Button>) -> gtk::Box {
