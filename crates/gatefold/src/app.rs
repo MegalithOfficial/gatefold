@@ -55,6 +55,8 @@ enum Page {
 pub struct App {
     css: gtk::CssProvider,
     services: Option<Arc<Services>>,
+    #[cfg(target_os = "linux")]
+    mpris: Option<crate::mpris::Mpris>,
     login: Option<tokio::sync::watch::Sender<bool>>,
     history: Vec<Page>,
     position: usize,
@@ -94,6 +96,8 @@ pub enum AppAction {
     CancelSignIn,
     CloseWelcome,
     LogOut,
+    Raise,
+    Quit,
 }
 
 pub enum AppCmd {
@@ -172,6 +176,8 @@ impl Component for App {
         let model = App {
             css,
             services: None,
+            #[cfg(target_os = "linux")]
+            mpris: None,
             login: None,
             history: vec![Page::Home],
             position: 0,
@@ -288,7 +294,7 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, action: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match action {
             AppAction::Cover(path) => {
                 let palette = Palette::from_cover(&path);
@@ -296,8 +302,14 @@ impl Component for App {
             }
             AppAction::PlayingCover(path) => {
                 self.lyrics.emit(LyricsAction::Cover(path.clone()));
+                #[cfg(target_os = "linux")]
+                if let Some(mpris) = &self.mpris {
+                    mpris.cover(path.clone());
+                }
                 sender.input(AppAction::Cover(path));
             }
+            AppAction::Raise => root.present(),
+            AppAction::Quit => relm4::main_application().quit(),
             AppAction::ToggleRack => self.rack.emit(RackAction::ToggleCollapse),
             AppAction::AddAccount => tracing::info!("add account: not wired yet"),
             AppAction::OpenSettings => self.show_welcome(),
@@ -378,10 +390,9 @@ impl Component for App {
     fn update_cmd(
         &mut self,
         message: Self::CommandOutput,
-        _sender: ComponentSender<Self>,
+        sender: ComponentSender<Self>,
         _root: &Self::Root,
     ) {
-        let _sender = _sender;
         match message {
             AppCmd::Ready(services) => {
                 self.login = None;
@@ -395,11 +406,18 @@ impl Component for App {
                     .emit(LyricsAction::SetServices(services.clone()));
                 self.search.emit(SearchAction::Show(services.clone()));
                 self.queue.emit(QueueAction::SetServices(services.clone()));
+                #[cfg(target_os = "linux")]
+                {
+                    self.mpris = Some(crate::mpris::Mpris::start(
+                        &services.playback,
+                        sender.input_sender().clone(),
+                    ));
+                }
                 self.services = Some(services);
                 if std::env::var("GATEFOLD_OPEN").is_ok()
                     && let Some(first) = metadata::cached_playlists().into_iter().next()
                 {
-                    _sender.input(AppAction::OpenPlaylist(Box::new(first)));
+                    sender.input(AppAction::OpenPlaylist(Box::new(first)));
                 }
             }
             AppCmd::Failed(error) => {

@@ -419,6 +419,14 @@ impl Playback {
         self.emit(Event::ShuffleChanged { shuffle });
     }
 
+    pub fn shuffle(&self) -> bool {
+        self.queue.lock().unwrap().shuffled
+    }
+
+    pub fn repeat(&self) -> Repeat {
+        *self.repeat.lock().unwrap()
+    }
+
     pub fn set_repeat(&self, repeat: Repeat) {
         *self.repeat.lock().unwrap() = repeat;
         self.emit(Event::RepeatChanged { repeat });
@@ -437,6 +445,10 @@ impl Playback {
 
     pub fn pause(&self) {
         self.player().pause();
+    }
+
+    pub fn stop(&self) {
+        self.player().stop();
     }
 
     pub fn toggle(&self) {
@@ -490,6 +502,10 @@ impl Playback {
 
     pub fn is_playing(&self) -> bool {
         self.playing.load(Ordering::Relaxed)
+    }
+
+    pub fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::Relaxed)
     }
 
     pub fn set_volume(&self, volume: u16) {

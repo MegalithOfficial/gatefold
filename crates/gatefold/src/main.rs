@@ -2,7 +2,10 @@ mod app;
 mod artists;
 mod components;
 mod css;
+mod lane;
 mod menu;
+#[cfg(target_os = "linux")]
+mod mpris;
 mod pages;
 mod palette;
 mod shortcuts;

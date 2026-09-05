@@ -20,7 +20,7 @@ The goal is feature parity with the official client. Where it stands:
 - [ ] Audio quality
 - [ ] Equalizer
 - [ ] Spotify Connect
-- [ ] MPRIS and media keys
+- [x] MPRIS and media keys
 - [ ] Mini player
 - [ ] Full-screen now playing
 
