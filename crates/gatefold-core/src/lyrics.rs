@@ -46,6 +46,10 @@ impl Provider {
             Self::Lrclib => "LRCLIB",
         }
     }
+
+    pub const fn times_words(self) -> bool {
+        matches!(self, Self::Spotify | Self::Amll)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -380,8 +384,16 @@ fn make_lyrics(
     attribution: String,
     language: Option<String>,
     sync: Sync,
-    lines: Vec<Line>,
+    mut lines: Vec<Line>,
 ) -> Lyrics {
+    let sync = if sync == Sync::Word && !source.times_words() {
+        for line in &mut lines {
+            line.words.clear();
+        }
+        Sync::Line
+    } else {
+        sync
+    };
     Lyrics {
         source,
         attribution,
@@ -854,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_lrcmux_word_timestamps_and_source() {
+    fn keeps_lrcmux_at_line_sync() {
         let response: LrcmuxResponse = serde_json::from_str(
             r#"{"meta":{"source":{"name":"KuGou"},"level":"word"},"lines":[{"text":"Hello world","start":1000,"end":2200,"words":[{"text":"Hello ","start":1000,"end":1600},{"text":"world","start":1600,"end":2200}]}]}"#,
         )
@@ -862,8 +874,9 @@ mod tests {
         let lyrics = parse_lrcmux(response, 3_000).unwrap();
         assert_eq!(lyrics.source, Provider::Lrcmux);
         assert_eq!(lyrics.attribution, "KuGou");
-        assert_eq!(lyrics.sync, Sync::Word);
-        assert_eq!(lyrics.lines[0].words[1].start_ms, 1_600);
+        assert_eq!(lyrics.sync, Sync::Line);
+        assert_eq!(lyrics.lines[0].start_ms, Some(1_000));
+        assert!(lyrics.lines[0].words.is_empty());
     }
 
     #[test]
