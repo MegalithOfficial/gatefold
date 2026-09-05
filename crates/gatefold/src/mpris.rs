@@ -1,7 +1,6 @@
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex, Weak},
-    time::Instant,
 };
 
 use gatefold_core::{
@@ -20,8 +19,6 @@ use relm4::{
 use tokio::sync::{broadcast::error::RecvError, mpsc};
 
 use crate::{APP_ID, app::AppAction};
-
-const SEEK_TOLERANCE_MS: u32 = 1000;
 
 pub struct Mpris {
     covers: mpsc::UnboundedSender<PathBuf>,
@@ -84,24 +81,9 @@ struct State {
     artists: Vec<String>,
     duration_ms: u32,
     cover: Option<PathBuf>,
-    position_ms: u32,
-    since: Option<Instant>,
 }
 
 impl State {
-    fn position_ms(&self) -> u32 {
-        match self.since {
-            Some(since) => self.position_ms + since.elapsed().as_millis() as u32,
-            None => self.position_ms,
-        }
-        .min(self.duration_ms.max(self.position_ms))
-    }
-
-    fn set_position(&mut self, position_ms: u32, playing: bool) {
-        self.position_ms = position_ms;
-        self.since = playing.then(Instant::now);
-    }
-
     fn track_id(&self) -> TrackId {
         self.uri
             .as_deref()
@@ -140,26 +122,12 @@ impl Bridge {
     fn apply(&self, event: Event) -> Changes {
         let mut state = self.state.lock().unwrap();
         match event {
-            Event::Playing { position_ms, .. } => {
-                state.set_position(position_ms, true);
-                (
-                    vec![Property::PlaybackStatus(PlaybackStatus::Playing)],
-                    None,
-                )
-            }
-            Event::Paused { position_ms, .. } => {
-                state.set_position(position_ms, false);
-                (vec![Property::PlaybackStatus(PlaybackStatus::Paused)], None)
-            }
-            Event::Position { position_ms, .. } => {
-                let drift = state.position_ms().abs_diff(position_ms);
-                let playing = state.since.is_some();
-                state.set_position(position_ms, playing);
-                (
-                    Vec::new(),
-                    (drift > SEEK_TOLERANCE_MS).then_some(position_ms),
-                )
-            }
+            Event::Playing { .. } => (
+                vec![Property::PlaybackStatus(PlaybackStatus::Playing)],
+                None,
+            ),
+            Event::Paused { .. } => (vec![Property::PlaybackStatus(PlaybackStatus::Paused)], None),
+            Event::Position { position_ms, .. } => (Vec::new(), Some(position_ms)),
             Event::TrackChanged {
                 uri,
                 name,
@@ -172,16 +140,12 @@ impl Bridge {
                 state.artists = artists.into_iter().map(|artist| artist.name).collect();
                 state.duration_ms = duration_ms;
                 state.cover = cover_id.as_deref().and_then(images::cached);
-                state.set_position(0, false);
                 (vec![Property::Metadata(state.metadata())], None)
             }
-            Event::Stopped => {
-                state.set_position(0, false);
-                (
-                    vec![Property::PlaybackStatus(PlaybackStatus::Stopped)],
-                    None,
-                )
-            }
+            Event::Stopped => (
+                vec![Property::PlaybackStatus(PlaybackStatus::Stopped)],
+                None,
+            ),
             Event::ShuffleChanged { shuffle } => (vec![Property::Shuffle(shuffle)], None),
             Event::RepeatChanged { repeat } => {
                 (vec![Property::LoopStatus(loop_status(repeat))], None)
@@ -191,6 +155,7 @@ impl Bridge {
                 None,
             ),
             Event::Loading { .. }
+            | Event::Preload { .. }
             | Event::QueueChanged { .. }
             | Event::UpNextChanged
             | Event::Connection { .. } => (Vec::new(), None),
@@ -303,10 +268,9 @@ impl PlayerInterface for Bridge {
 
     async fn seek(&self, offset: Time) -> fdo::Result<()> {
         let playback = self.playback()?;
-        let target = {
-            let state = self.state.lock().unwrap();
-            (state.position_ms() as i64 + offset.as_millis()).clamp(0, state.duration_ms as i64)
-        };
+        let duration_ms = self.state.lock().unwrap().duration_ms;
+        let target =
+            (playback.position_ms() as i64 + offset.as_millis()).clamp(0, duration_ms as i64);
         playback.seek(target as u32);
         Ok(())
     }
@@ -388,9 +352,7 @@ impl PlayerInterface for Bridge {
     }
 
     async fn position(&self) -> fdo::Result<Time> {
-        Ok(Time::from_millis(
-            self.state.lock().unwrap().position_ms() as i64
-        ))
+        Ok(Time::from_millis(self.playback()?.position_ms() as i64))
     }
 
     async fn minimum_rate(&self) -> fdo::Result<PlaybackRate> {

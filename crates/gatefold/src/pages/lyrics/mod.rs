@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     rc::Rc,
     sync::Arc,
@@ -9,7 +9,8 @@ use std::{
 
 use gatefold_core::{
     lyrics::{self, Lyrics, Provider, Request, Sync},
-    player,
+    metadata,
+    player::{self, Playback},
     settings::{Motion, Settings},
 };
 use relm4::{
@@ -28,6 +29,7 @@ const HOLD: Duration = Duration::from_secs(12);
 const BONES: [i32; 7] = [420, 300, 480, 260, 380, 440, 320];
 const TONE_SAMPLE: i32 = 48;
 const TONES: usize = 4;
+const REMEMBERED: usize = 6;
 
 pub struct LyricsPage {
     services: Option<Arc<Services>>,
@@ -35,6 +37,8 @@ pub struct LyricsPage {
     state: State,
     candidates: Vec<Lyrics>,
     chosen: usize,
+    fetched: VecDeque<(String, Vec<Lyrics>)>,
+    pending: HashSet<String>,
     romanized: bool,
     settings: Settings,
     sheet: Rc<RefCell<Sheet>>,
@@ -205,8 +209,7 @@ impl Component for LyricsPage {
             lines: Vec::new(),
             body: body.clone(),
             scroll: scroll.clone(),
-            anchor: (0, Instant::now()),
-            playing: false,
+            clock: None,
             active: None,
             hold: None,
             settle: None,
@@ -275,6 +278,8 @@ impl Component for LyricsPage {
             state: State::Idle,
             candidates: Vec::new(),
             chosen: 0,
+            fetched: VecDeque::new(),
+            pending: HashSet::new(),
             romanized: false,
             settings: Settings::load(),
             sheet,
@@ -302,6 +307,7 @@ impl Component for LyricsPage {
         match action {
             LyricsAction::SetServices(services) => {
                 let mut events = services.playback.events();
+                self.sheet.borrow_mut().clock = Some(services.playback.clone());
                 self.services = Some(services);
                 sender.command(|out, shutdown| {
                     shutdown
@@ -323,7 +329,6 @@ impl Component for LyricsPage {
                     .and_then(|lyrics| lyrics.seek_position(line, word));
                 if let (Some(services), Some(position_ms)) = (&self.services, position_ms) {
                     services.playback.seek(position_ms);
-                    self.sheet.borrow_mut().mark(position_ms);
                 }
             }
             LyricsAction::Romanize(on) => {
@@ -356,75 +361,51 @@ impl Component for LyricsPage {
         _root: &Self::Root,
     ) {
         match message {
-            LyricsUpdate::Playback(event) => match event {
-                player::Event::TrackChanged {
-                    uri,
-                    name,
-                    artists,
-                    duration_ms,
-                    ..
-                } => {
-                    self.uri = uri.clone();
-                    self.state = State::Loading;
-                    self.candidates.clear();
-                    self.chosen = 0;
-                    self.romanized = false;
-                    self.romanize.set_active(false);
-                    self.sheet.borrow_mut().load(None, &sender);
-                    let Some(services) = self.services.clone() else {
-                        return;
-                    };
+            LyricsUpdate::Playback(player::Event::TrackChanged {
+                uri,
+                name,
+                artists,
+                duration_ms,
+                ..
+            }) => {
+                self.uri = uri.clone();
+                self.state = State::Loading;
+                self.candidates.clear();
+                self.chosen = 0;
+                self.romanized = false;
+                self.romanize.set_active(false);
+                self.sheet.borrow_mut().load(None, &sender);
+                let remembered = self
+                    .fetched
+                    .iter()
+                    .find(|(known, found)| *known == uri && !found.is_empty())
+                    .map(|(_, found)| found.clone());
+                if let Some(found) = remembered {
+                    self.present(found, &sender);
+                } else if !self.pending.contains(&uri) {
                     let request = Request {
                         uri: uri.clone(),
                         title: name,
                         artists: artists.into_iter().map(|artist| artist.name).collect(),
                         duration_ms,
                     };
-                    sender.oneshot_command(async move {
-                        let found = lyrics::fetch_all(&services.session(), &request).await;
-                        LyricsUpdate::Loaded(uri, found)
-                    });
+                    self.fetch(uri, request, &sender);
                 }
-                player::Event::Playing { uri, position_ms } => {
-                    let mut sheet = self.sheet.borrow_mut();
-                    sheet.playing = true;
-                    if uri == self.uri {
-                        sheet.mark(position_ms);
-                    }
-                }
-                player::Event::Paused { uri, position_ms } => {
-                    let mut sheet = self.sheet.borrow_mut();
-                    sheet.playing = false;
-                    if uri == self.uri {
-                        sheet.mark(position_ms);
-                    }
-                }
-                player::Event::Position { uri, position_ms } => {
-                    if uri == self.uri {
-                        self.sheet.borrow_mut().mark(position_ms);
-                    }
-                }
-                player::Event::Stopped => self.sheet.borrow_mut().playing = false,
-                _ => {}
-            },
+            }
+            LyricsUpdate::Playback(
+                player::Event::Loading { uri } | player::Event::Preload { uri },
+            ) => self.prefetch(uri, &sender),
+            LyricsUpdate::Playback(_) => {}
             LyricsUpdate::Loaded(uri, found) => {
-                if uri != self.uri {
-                    return;
+                self.pending.remove(&uri);
+                self.fetched.retain(|(known, _)| *known != uri);
+                self.fetched.push_back((uri.clone(), found.clone()));
+                while self.fetched.len() > REMEMBERED {
+                    self.fetched.pop_front();
                 }
-                self.chosen = found
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .max_by_key(|(_, lyrics)| lyrics.sync)
-                    .map_or(0, |(index, _)| index);
-                self.candidates = found;
-                self.state = if self.candidates.is_empty() {
-                    State::Missing
-                } else {
-                    State::Sheet
-                };
-                self.menu(&sender);
-                self.show(&sender);
+                if uri == self.uri {
+                    self.present(found, &sender);
+                }
             }
         }
         let empty = self
@@ -440,6 +421,69 @@ impl Component for LyricsPage {
 }
 
 impl LyricsPage {
+    fn prefetch(&mut self, uri: String, sender: &ComponentSender<Self>) {
+        let remembered = self.fetched.iter().any(|(known, _)| *known == uri);
+        if remembered || self.pending.contains(&uri) {
+            return;
+        }
+        let Some(services) = self.services.clone() else {
+            return;
+        };
+        self.pending.insert(uri.clone());
+        sender.oneshot_command(async move {
+            let session = services.session();
+            let track = metadata::tracks(&session, vec![uri.clone()])
+                .await
+                .into_iter()
+                .next();
+            let found = match track {
+                Some(track) => {
+                    let request = Request {
+                        uri: uri.clone(),
+                        title: track.name,
+                        artists: track
+                            .artists
+                            .into_iter()
+                            .map(|artist| artist.name)
+                            .collect(),
+                        duration_ms: track.duration_ms,
+                    };
+                    lyrics::fetch_all(&session, &request).await
+                }
+                None => Vec::new(),
+            };
+            LyricsUpdate::Loaded(uri, found)
+        });
+    }
+
+    fn fetch(&mut self, uri: String, request: Request, sender: &ComponentSender<Self>) {
+        let Some(services) = self.services.clone() else {
+            return;
+        };
+        self.pending.insert(uri.clone());
+        sender.oneshot_command(async move {
+            let found = lyrics::fetch_all(&services.session(), &request).await;
+            LyricsUpdate::Loaded(uri, found)
+        });
+    }
+
+    fn present(&mut self, found: Vec<Lyrics>, sender: &ComponentSender<Self>) {
+        self.chosen = found
+            .iter()
+            .enumerate()
+            .rev()
+            .max_by_key(|(_, lyrics)| lyrics.sync)
+            .map_or(0, |(index, _)| index);
+        self.candidates = found;
+        self.state = if self.candidates.is_empty() {
+            State::Missing
+        } else {
+            State::Sheet
+        };
+        self.menu(sender);
+        self.show(sender);
+    }
+
     fn current(&self) -> Option<&Lyrics> {
         self.candidates.get(self.chosen)
     }
@@ -699,8 +743,7 @@ struct Sheet {
     lines: Vec<Lyric>,
     body: gtk::Box,
     scroll: gtk::ScrolledWindow,
-    anchor: (u32, Instant),
-    playing: bool,
+    clock: Option<Arc<Playback>>,
     active: Option<usize>,
     hold: Option<Instant>,
     settle: Option<bool>,
@@ -711,16 +754,7 @@ struct Sheet {
 
 impl Sheet {
     fn position(&self) -> u32 {
-        let (position_ms, since) = self.anchor;
-        if self.playing {
-            position_ms.saturating_add(since.elapsed().as_millis() as u32)
-        } else {
-            position_ms
-        }
-    }
-
-    fn mark(&mut self, position_ms: u32) {
-        self.anchor = (position_ms, Instant::now());
+        self.clock.as_ref().map_or(0, |clock| clock.position_ms())
     }
 
     fn load(&mut self, lyrics: Option<Lyrics>, sender: &ComponentSender<LyricsPage>) {

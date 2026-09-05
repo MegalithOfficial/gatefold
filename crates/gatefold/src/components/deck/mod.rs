@@ -553,8 +553,11 @@ impl Component for Deck {
                 }
             }
             DeckUpdate::Tick => {
-                if self.playing && !self.seeking {
-                    self.position_ms = (self.position_ms + 500).min(self.duration_ms);
+                if self.playing
+                    && !self.seeking
+                    && let Some(services) = &self.services
+                {
+                    self.position_ms = services.playback.position_ms().min(self.duration_ms);
                 }
             }
         }

@@ -2,9 +2,9 @@ use std::{
     collections::VecDeque,
     sync::{
         Arc, Mutex, RwLock, Weak,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use rand::seq::SliceRandom;
@@ -12,7 +12,7 @@ use rand::seq::SliceRandom;
 use crate::{
     model::ArtistRef,
     session,
-    sink::{Rodio, SinkHandle},
+    sink::{Output, SinkHandle},
 };
 
 use anyhow::{Context, Result};
@@ -31,6 +31,9 @@ use tokio::sync::broadcast;
 #[derive(Debug, Clone)]
 pub enum Event {
     Loading {
+        uri: String,
+    },
+    Preload {
         uri: String,
     },
     Playing {
@@ -81,6 +84,13 @@ pub enum Repeat {
 }
 
 const RESTART_THRESHOLD_MS: u32 = 3000;
+
+#[derive(Clone, Copy)]
+struct Anchor {
+    position_ms: u32,
+    written: u64,
+    at: Instant,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
@@ -161,7 +171,7 @@ pub struct Playback {
     repeat: Mutex<Repeat>,
     playing: AtomicBool,
     stopped: AtomicBool,
-    position_ms: AtomicU32,
+    anchor: Mutex<Anchor>,
     load_epoch: Arc<AtomicU64>,
     runtime: tokio::runtime::Handle,
     events: broadcast::Sender<Event>,
@@ -189,7 +199,11 @@ pub fn start(session: Session) -> Result<Arc<Playback>> {
         repeat: Mutex::new(Repeat::Off),
         playing: AtomicBool::new(false),
         stopped: AtomicBool::new(false),
-        position_ms: AtomicU32::new(0),
+        anchor: Mutex::new(Anchor {
+            position_ms: 0,
+            written: 0,
+            at: Instant::now(),
+        }),
         load_epoch: Arc::new(AtomicU64::new(0)),
         runtime: tokio::runtime::Handle::current(),
         events,
@@ -216,7 +230,7 @@ fn build_player(session: Session, mixer: &SoftMixer, sink: &SinkHandle) -> Resul
                 PlayerConfig::default(),
                 session,
                 mixer.get_soft_volume(),
-                move || Box::new(Rodio::open(&sink).expect("audio output")),
+                move || Box::new(Output::open(&sink).expect("audio output")),
             )
         }
     })
@@ -269,7 +283,7 @@ impl Playback {
                         playback.emit(Event::Connection { online: true });
                         tracing::info!("session reconnected");
                         if playback.resume.swap(false, Ordering::SeqCst) {
-                            playback.load_current();
+                            playback.load_current(true);
                         }
                         return;
                     }
@@ -320,7 +334,7 @@ impl Playback {
             index: position,
             length,
         });
-        self.load_current();
+        self.load_current(true);
     }
 
     pub fn queue(&self) -> (Vec<String>, usize) {
@@ -417,7 +431,7 @@ impl Playback {
             queue.take_up_next();
         }
         self.emit(Event::UpNextChanged);
-        self.load_current();
+        self.load_current(true);
     }
 
     pub fn jump(&self, position: usize) {
@@ -434,14 +448,14 @@ impl Playback {
             index: position,
             length,
         });
-        self.load_current();
+        self.load_current(true);
     }
 
-    fn take_up_next(&self) -> bool {
+    fn take_up_next(&self, flush: bool) -> bool {
         let taken = self.queue.lock().unwrap().take_up_next();
         if taken {
             self.emit(Event::UpNextChanged);
-            self.load_current();
+            self.load_current(flush);
         }
         taken
     }
@@ -487,9 +501,9 @@ impl Playback {
     pub fn play(&self) {
         let idle = self.queue.lock().unwrap().current().is_none();
         if idle {
-            self.take_up_next();
+            self.take_up_next(true);
         } else if self.stopped.load(Ordering::Relaxed) {
-            self.load_current();
+            self.load_current(true);
         } else {
             self.player().play();
         }
@@ -513,26 +527,46 @@ impl Playback {
 
     pub fn seek(&self, position_ms: u32) {
         self.sink.flush();
+        self.mark(position_ms);
         self.player().seek(position_ms);
+    }
+
+    pub fn position_ms(&self) -> u32 {
+        let anchor = *self.anchor.lock().unwrap();
+        match self.sink.played_ms(anchor.written) {
+            Some(played) => (anchor.position_ms as f64 + played).max(0.0) as u32,
+            None if self.playing.load(Ordering::Relaxed) => anchor
+                .position_ms
+                .saturating_add(anchor.at.elapsed().as_millis() as u32),
+            None => anchor.position_ms,
+        }
+    }
+
+    fn mark(&self, position_ms: u32) {
+        *self.anchor.lock().unwrap() = Anchor {
+            position_ms,
+            written: self.sink.written(),
+            at: Instant::now(),
+        };
     }
 
     pub fn next(&self) {
         self.demote_repeat();
-        if !self.take_up_next() && !self.step(1) {
+        if !self.take_up_next(true) && !self.step(1, true) {
             self.player().stop();
         }
     }
 
     pub fn previous(&self) {
-        if self.position_ms.load(Ordering::Relaxed) > RESTART_THRESHOLD_MS {
-            self.player().seek(0);
+        if self.position_ms() > RESTART_THRESHOLD_MS {
+            self.seek(0);
         } else {
             self.demote_repeat();
             let detoured = self.queue.lock().unwrap().detour.take().is_some();
             if detoured {
-                self.load_current();
-            } else if !self.step(-1) {
-                self.player().seek(0);
+                self.load_current(true);
+            } else if !self.step(-1, true) {
+                self.seek(0);
             }
         }
     }
@@ -565,7 +599,7 @@ impl Playback {
         self.emit(Event::Volume { volume });
     }
 
-    fn step(&self, delta: isize) -> bool {
+    fn step(&self, delta: isize, flush: bool) -> bool {
         let next = {
             let mut queue = self.queue.lock().unwrap();
             let position = queue.position as isize + delta;
@@ -581,7 +615,7 @@ impl Playback {
         match next {
             Some((index, length)) => {
                 self.emit(Event::QueueChanged { index, length });
-                self.load_current();
+                self.load_current(flush);
                 true
             }
             None => false,
@@ -591,10 +625,10 @@ impl Playback {
     fn advance(&self) {
         let repeat = *self.repeat.lock().unwrap();
         match repeat {
-            Repeat::Track => self.load_current(),
-            _ if self.take_up_next() => {}
+            Repeat::Track => self.load_current(false),
+            _ if self.take_up_next(false) => {}
             Repeat::Context => {
-                if !self.step(1) {
+                if !self.step(1, false) {
                     let length = {
                         let mut queue = self.queue.lock().unwrap();
                         queue.position = 0;
@@ -602,18 +636,18 @@ impl Playback {
                         queue.order.len()
                     };
                     self.emit(Event::QueueChanged { index: 0, length });
-                    self.load_current();
+                    self.load_current(false);
                 }
             }
             Repeat::Off => {
-                if !self.step(1) {
+                if !self.step(1, false) {
                     self.player().stop();
                 }
             }
         }
     }
 
-    fn load_current(&self) {
+    fn load_current(&self, flush: bool) {
         let epoch = self.load_epoch.fetch_add(1, Ordering::SeqCst) + 1;
         let load_epoch = self.load_epoch.clone();
         let weak = self.weak.clone();
@@ -639,7 +673,10 @@ impl Playback {
 
             match SpotifyUri::from_uri(&uri) {
                 Ok(id) => {
-                    playback.sink.flush();
+                    if flush {
+                        playback.sink.flush();
+                    }
+                    playback.mark(0);
                     playback.player().load(id, true, 0);
                 }
                 Err(error) => tracing::error!("bad queue uri {uri}: {error}"),
@@ -668,46 +705,30 @@ impl Playback {
                     uri: uri_string(&track_id),
                 });
             }
-            PlayerEvent::Playing {
-                track_id,
-                position_ms,
-                ..
-            } => {
+            PlayerEvent::Playing { track_id, .. } => {
+                if !self.sink.clocked() {
+                    self.mark(self.position_ms());
+                }
                 self.playing.store(true, Ordering::Relaxed);
-                self.position_ms.store(position_ms, Ordering::Relaxed);
+                let position_ms = self.position_ms();
                 self.emit(Event::Playing {
                     uri: uri_string(&track_id),
                     position_ms,
                 });
             }
-            PlayerEvent::Paused {
-                track_id,
-                position_ms,
-                ..
-            } => {
+            PlayerEvent::Paused { track_id, .. } => {
+                if !self.sink.clocked() {
+                    self.mark(self.position_ms());
+                }
                 self.playing.store(false, Ordering::Relaxed);
-                self.position_ms.store(position_ms, Ordering::Relaxed);
+                let position_ms = self.position_ms();
                 self.emit(Event::Paused {
                     uri: uri_string(&track_id),
                     position_ms,
                 });
             }
-            PlayerEvent::PositionChanged {
-                track_id,
-                position_ms,
-                ..
-            }
-            | PlayerEvent::PositionCorrection {
-                track_id,
-                position_ms,
-                ..
-            }
-            | PlayerEvent::Seeked {
-                track_id,
-                position_ms,
-                ..
-            } => {
-                self.position_ms.store(position_ms, Ordering::Relaxed);
+            PlayerEvent::Seeked { track_id, .. } => {
+                let position_ms = self.position_ms();
                 self.emit(Event::Position {
                     uri: uri_string(&track_id),
                     position_ms,
@@ -744,10 +765,7 @@ impl Playback {
                     cover_id,
                 });
             }
-            PlayerEvent::EndOfTrack { .. } => {
-                self.position_ms.store(0, Ordering::Relaxed);
-                self.advance();
-            }
+            PlayerEvent::EndOfTrack { .. } => self.advance(),
             PlayerEvent::Unavailable { track_id, .. } => {
                 if self.session().is_invalid() {
                     self.resume.store(true, Ordering::SeqCst);
@@ -755,7 +773,7 @@ impl Playback {
                     return;
                 }
                 tracing::warn!("track unavailable, skipping: {}", uri_string(&track_id));
-                if !self.take_up_next() && !self.step(1) {
+                if !self.take_up_next(true) && !self.step(1, true) {
                     self.player().stop();
                 }
             }
@@ -767,6 +785,7 @@ impl Playback {
                     && let Ok(id) = SpotifyUri::from_uri(&uri)
                 {
                     self.player().preload(id);
+                    self.emit(Event::Preload { uri });
                 }
             }
             PlayerEvent::VolumeChanged { volume } => self.emit(Event::Volume { volume }),
